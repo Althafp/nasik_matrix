@@ -18,6 +18,25 @@
   display: flex;
   align-items: center;
   gap: 20px;
+  width: 100%;
+  justify-content: space-between;
+}
+
+.download-pdf-button {
+  padding: 10px 20px;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.3s;
+  margin-left: auto;
+}
+
+.download-pdf-button:hover {
+  background: #059669;
 }
 
 .details-header h1 {

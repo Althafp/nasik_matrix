@@ -13,15 +13,7 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "your-app-id"
 };
 
-// const firebaseConfig = {
-//     apiKey: "AIzaSyAzYyl80SRmDrxYQLxxTz52a0Ued9MRdL0",
-//     authDomain: "nasik-5ada8.firebaseapp.com",
-//     projectId: "nasik-5ada8",
-//     storageBucket: "nasik-5ada8.firebasestorage.app",
-//     messagingSenderId: "1049170955138",
-//     appId: "1:1049170955138:web:e47b632e69d00e73171d9b",
-//     measurementId: "G-64E26ZB868"
-//   };
+
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);

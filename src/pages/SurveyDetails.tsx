@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import type { Survey } from '../firebase/surveys';
 import { getSurveyById } from '../firebase/surveys';
+import { generatePDF } from '../utils/pdfExport';
 import './SurveyDetails.css';
 
 export default function SurveyDetails() {
@@ -85,6 +86,32 @@ export default function SurveyDetails() {
             ← Back to Dashboard
           </button>
           <h1>Survey Details</h1>
+          <button 
+            onClick={async (e) => {
+              try {
+                // Show loading message
+                const button = e.currentTarget;
+                const originalText = button.textContent;
+                button.textContent = '⏳ Generating PDF...';
+                button.disabled = true;
+                
+                await generatePDF();
+                
+                // Restore button
+                button.textContent = originalText;
+                button.disabled = false;
+              } catch (error) {
+                console.error('Error generating PDF:', error);
+                alert('Failed to generate PDF. Please try again.');
+                const button = e.currentTarget;
+                button.textContent = '📥 Download PDF';
+                button.disabled = false;
+              }
+            }} 
+            className="download-pdf-button"
+          >
+            📥 Download PDF
+          </button>
         </div>
       </header>
 
@@ -197,17 +224,15 @@ export default function SurveyDetails() {
           </section>
 
           {/* Parent Pole Section */}
-          {(survey.parentPoleId || survey.parentPoleDistance) && (
-            <section className="details-section">
-              <h2>Parent Pole Information</h2>
-              <div className="details-grid">
-                <DetailItem label="Parent Pole ID" value={survey.parentPoleId} />
-                <DetailItem label="Parent Pole Distance (m)" value={survey.parentPoleDistance} />
-                <DetailItem label="Parent Pole Road Crossing (m)" value={survey.parentPoleRoadCrossing} />
-                <DetailItem label="Parent Pole Road Type" value={survey.parentPoleRoadType} />
-              </div>
-            </section>
-          )}
+          <section className="details-section">
+            <h2>PARENT POLE FOR POWER SOURCE</h2>
+            <div className="details-grid">
+              <DetailItem label="Parent pole ID" value={survey.parentPoleId} />
+              <DetailItem label="Parent pole distance" value={survey.parentPoleDistance} />
+              <DetailItem label="Road crossing length from parent pole" value={survey.parentPoleRoadCrossing} />
+              <DetailItem label="Parent road type" value={survey.parentPoleRoadType} />
+            </div>
+          </section>
 
           {/* Images */}
           {survey.imageUrls && survey.imageUrls.length > 0 && (
@@ -243,7 +268,7 @@ function DetailItem({ label, value }: { label: string; value: any }) {
   return (
     <div className="detail-item">
       <span className="detail-label">{label}:</span>
-      <span className="detail-value">{value !== undefined && value !== null ? String(value) : 'N/A'}</span>
+      <span className="detail-value">{value !== undefined && value !== null && value !== '' ? String(value) : ''}</span>
     </div>
   );
 }
