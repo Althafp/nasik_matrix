@@ -56,9 +56,25 @@ export async function signIn(phoneNumber: string, password: string): Promise<Use
     const hashedPassword = await hashPassword(password);
 
     // Query users collection for matching phone number
+    // Try both normalized format and without country code (for backward compatibility)
     const usersRef = collection(db, 'users');
-    const q = query(usersRef, where('phoneNumber', '==', normalizedPhone));
-    const querySnapshot = await getDocs(q);
+    
+    // First try with normalized phone (with +91)
+    let q = query(usersRef, where('phoneNumber', '==', normalizedPhone));
+    let querySnapshot = await getDocs(q);
+
+    // If not found and normalized phone starts with +91, try without country code
+    if (querySnapshot.empty && normalizedPhone.startsWith('+91')) {
+      const phoneWithoutCountryCode = normalizedPhone.substring(3); // Remove +91
+      q = query(usersRef, where('phoneNumber', '==', phoneWithoutCountryCode));
+      querySnapshot = await getDocs(q);
+    }
+
+    // If still not found, try the original input as-is (in case it's stored exactly as entered)
+    if (querySnapshot.empty) {
+      q = query(usersRef, where('phoneNumber', '==', phoneNumber));
+      querySnapshot = await getDocs(q);
+    }
 
     if (querySnapshot.empty) {
       throw new Error('User not found');
