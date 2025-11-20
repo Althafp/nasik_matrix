@@ -263,6 +263,7 @@ export default function Dashboard() {
                     <th>Exist CCTV</th>
                     <th>Distance from pole to existing pole</th>
                     <th>No. of cameras</th>
+                    <th>Fixed Box Camera</th>
                     <th>No. of poles</th>
                     <th>2 core power cable from pole to power DB</th>
                     <th>CAT6 cable camera to JB</th>
@@ -328,6 +329,7 @@ export default function Dashboard() {
                       </td>
                       <td>{survey.distanceFromExistingPole || 'N/A'}</td>
                       <td>{survey.noOfCameras || 0}</td>
+                      <td>{survey.fixedBoxCamera || 0}</td>
                       <td>{survey.noOfPoles || 'N/A'}</td>
                       <td>{survey.powerCable || 'N/A'}</td>
                       <td>{survey.cat6Cable || 'N/A'}</td>
