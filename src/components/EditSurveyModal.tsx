@@ -65,7 +65,6 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
   };
 
   const handleArrayChange = (field: keyof Survey, value: string) => {
-    const currentArray = (formData[field] as string[]) || [];
     const newArray = value.split(',').map(item => item.trim()).filter(item => item);
     setFormData(prev => ({ ...prev, [field]: newArray }));
   };
@@ -89,18 +88,6 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
     } finally {
       setSaving(false);
     }
-  };
-
-  const locationCategoryOptions = [
-    'Commercial', 'Residential', 'Industrial', 'Public Place', 'Highway', 'Other'
-  ];
-
-  const analyticsOptions = {
-    crowdSafety: ['Crowd Monitoring', 'Density Analysis', 'Queue Management'],
-    investigation: ['Face Recognition', 'Object Detection', 'Behavior Analysis'],
-    publicOrder: ['Vandalism Detection', 'Trespassing Detection', 'Perimeter Monitoring'],
-    traffic: ['Vehicle Counting', 'Speed Detection', 'Traffic Flow Analysis'],
-    safety: ['Accident Detection', 'Emergency Response', 'Hazard Detection']
   };
 
   return (
