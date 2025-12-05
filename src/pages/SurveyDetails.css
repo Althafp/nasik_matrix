@@ -22,9 +22,17 @@
   justify-content: space-between;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.edit-button,
+.delete-button,
 .download-pdf-button {
   padding: 10px 20px;
-  background: #10b981;
   color: white;
   border: none;
   border-radius: 6px;
@@ -32,7 +40,31 @@
   font-size: 14px;
   font-weight: 500;
   transition: background 0.3s;
-  margin-left: auto;
+}
+
+.edit-button {
+  background: #3b82f6;
+}
+
+.edit-button:hover {
+  background: #2563eb;
+}
+
+.delete-button {
+  background: #ef4444;
+}
+
+.delete-button:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.delete-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.download-pdf-button {
+  background: #10b981;
 }
 
 .download-pdf-button:hover {

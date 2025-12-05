@@ -2,17 +2,20 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import type { Survey } from '../firebase/surveys';
-import { getSurveyById } from '../firebase/surveys';
+import { getSurveyById, updateSurvey, deleteSurvey } from '../firebase/surveys';
 import { generatePDF } from '../utils/pdfExport';
+import EditSurveyModal from '../components/EditSurveyModal';
 import './SurveyDetails.css';
 
 export default function SurveyDetails() {
   const { userId, surveyId } = useParams<{ userId: string; surveyId: string }>();
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, isAdmin } = useAuth();
   const [survey, setSurvey] = useState<Survey | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -57,6 +60,49 @@ export default function SurveyDetails() {
     });
   };
 
+  const canEditOrDelete = () => {
+    if (!user || !survey) return false;
+    // Admins can edit/delete any survey, users can only edit/delete their own
+    return isAdmin || user.id === survey.userId;
+  };
+
+  const handleEdit = () => {
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditSave = async (updatedSurvey: Partial<Survey>) => {
+    if (!userId || !surveyId) return;
+
+    try {
+      await updateSurvey(userId, surveyId, updatedSurvey);
+      // Reload the survey to show updated data
+      await loadSurvey();
+      setIsEditModalOpen(false);
+    } catch (err: any) {
+      alert('Failed to update survey: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!userId || !surveyId || !survey) return;
+
+    const confirmMessage = `Are you sure you want to delete this survey?\n\nRFP #${survey.rfpNumber}\nPole ID: ${survey.poleId}\nLocation: ${survey.locationName}\n\nThis action cannot be undone.`;
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await deleteSurvey(userId, surveyId);
+      // Navigate back to dashboard after successful deletion
+      navigate('/dashboard');
+    } catch (err: any) {
+      alert('Failed to delete survey: ' + (err.message || 'Unknown error'));
+      setIsDeleting(false);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="survey-details-container">
@@ -86,32 +132,53 @@ export default function SurveyDetails() {
             ← Back to Dashboard
           </button>
           <h1>Survey Details</h1>
-          <button 
-            onClick={async (e) => {
-              try {
-                // Show loading message
-                const button = e.currentTarget;
-                const originalText = button.textContent;
-                button.textContent = '⏳ Generating PDF...';
-                button.disabled = true;
-                
-                await generatePDF();
-                
-                // Restore button
-                button.textContent = originalText;
-                button.disabled = false;
-              } catch (error) {
-                console.error('Error generating PDF:', error);
-                alert('Failed to generate PDF. Please try again.');
-                const button = e.currentTarget;
-                button.textContent = '📥 Download PDF';
-                button.disabled = false;
-              }
-            }} 
-            className="download-pdf-button"
-          >
-            📥 Download PDF
-          </button>
+          <div className="header-actions">
+            {canEditOrDelete() && (
+              <>
+                <button 
+                  onClick={handleEdit}
+                  className="edit-button"
+                  title="Edit Survey"
+                >
+                  ✏️ Edit
+                </button>
+                <button 
+                  onClick={handleDelete}
+                  className="delete-button"
+                  disabled={isDeleting}
+                  title="Delete Survey"
+                >
+                  {isDeleting ? '⏳ Deleting...' : '🗑️ Delete'}
+                </button>
+              </>
+            )}
+            <button 
+              onClick={async (e) => {
+                try {
+                  // Show loading message
+                  const button = e.currentTarget;
+                  const originalText = button.textContent;
+                  button.textContent = '⏳ Generating PDF...';
+                  button.disabled = true;
+                  
+                  await generatePDF();
+                  
+                  // Restore button
+                  button.textContent = originalText;
+                  button.disabled = false;
+                } catch (error) {
+                  console.error('Error generating PDF:', error);
+                  alert('Failed to generate PDF. Please try again.');
+                  const button = e.currentTarget;
+                  button.textContent = '📥 Download PDF';
+                  button.disabled = false;
+                }
+              }} 
+              className="download-pdf-button"
+            >
+              📥 Download PDF
+            </button>
+          </div>
         </div>
       </header>
 
@@ -260,6 +327,14 @@ export default function SurveyDetails() {
           </section>
         </div>
       </main>
+
+      {isEditModalOpen && survey && (
+        <EditSurveyModal
+          survey={survey}
+          onClose={() => setIsEditModalOpen(false)}
+          onSave={handleEditSave}
+        />
+      )}
     </div>
   );
 }

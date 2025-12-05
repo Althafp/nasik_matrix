@@ -5,9 +5,13 @@ import {
   orderBy,
   collectionGroup,
   doc,
-  getDoc
+  getDoc,
+  deleteDoc,
+  updateDoc,
+  Timestamp
 } from 'firebase/firestore';
-import { db } from './config';
+import { db, storage } from './config';
+import { ref, deleteObject } from 'firebase/storage';
 
 export type Survey = {
   id: string;
@@ -111,6 +115,65 @@ export async function getSurveyById(userId: string, surveyId: string): Promise<S
   } catch (error) {
     console.error('Error fetching survey:', error);
     return null;
+  }
+}
+
+// Update a survey
+export async function updateSurvey(
+  userId: string,
+  surveyId: string,
+  updates: Partial<Survey>
+): Promise<void> {
+  try {
+    const surveyRef = doc(db, 'users', userId, 'surveys', surveyId);
+    await updateDoc(surveyRef, {
+      ...updates,
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    console.error('Error updating survey:', error);
+    throw error;
+  }
+}
+
+// Delete a survey
+export async function deleteSurvey(userId: string, surveyId: string): Promise<void> {
+  try {
+    const surveyRef = doc(db, 'users', userId, 'surveys', surveyId);
+    const surveySnap = await getDoc(surveyRef);
+    
+    if (surveySnap.exists()) {
+      const surveyData = surveySnap.data() as Survey;
+      
+      // Delete associated images from storage if they exist
+      if (surveyData.imageUrls && surveyData.imageUrls.length > 0) {
+        const deletePromises = surveyData.imageUrls.map(async (url) => {
+          try {
+            // Extract the path from the URL
+            // Firebase Storage URLs typically have the format:
+            // https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}?alt=media&token={token}
+            const urlObj = new URL(url);
+            const pathMatch = urlObj.pathname.match(/\/o\/(.+)\?/);
+            if (pathMatch) {
+              const decodedPath = decodeURIComponent(pathMatch[1]);
+              const imageRef = ref(storage, decodedPath);
+              await deleteObject(imageRef);
+            }
+          } catch (error) {
+            // If image deletion fails, log but don't fail the entire operation
+            console.warn('Failed to delete image:', url, error);
+          }
+        });
+        
+        await Promise.allSettled(deletePromises);
+      }
+      
+      // Delete the survey document
+      await deleteDoc(surveyRef);
+    }
+  } catch (error) {
+    console.error('Error deleting survey:', error);
+    throw error;
   }
 }
 
