@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import type { Survey } from '../firebase/surveys';
 import { createSurvey } from '../firebase/surveys';
+import { storage } from '../firebase/config';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import './CreateSurvey.css';
 
 export default function CreateSurvey() {
@@ -17,6 +19,9 @@ export default function CreateSurvey() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   const handleChange = (field: keyof Survey, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -32,6 +37,79 @@ export default function CreateSurvey() {
     if (value === 'true') boolValue = true;
     else if (value === 'false') boolValue = false;
     setFormData(prev => ({ ...prev, [field]: boolValue }));
+  };
+
+  const handleImageChange = (index: number, file: File | null) => {
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError('Please select a valid image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image size should be less than 5MB');
+      return;
+    }
+
+    const newImages = [...images];
+    const newPreviews = [...imagePreviews];
+
+    // Update the image at the specified index
+    newImages[index] = file;
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      newPreviews[index] = reader.result as string;
+      setImagePreviews([...newPreviews]);
+    };
+    reader.readAsDataURL(file);
+
+    setImages(newImages);
+    setError('');
+  };
+
+  const removeImage = (index: number) => {
+    const newImages = [...images];
+    const newPreviews = [...imagePreviews];
+    newImages.splice(index, 1);
+    newPreviews.splice(index, 1);
+    setImages(newImages);
+    setImagePreviews(newPreviews);
+  };
+
+  const uploadImages = async (userId: string): Promise<string[]> => {
+    if (images.length === 0) return [];
+
+    setUploadingImages(true);
+    const uploadPromises = images.map(async (image, index) => {
+      try {
+        // Create a unique filename
+        const timestamp = Date.now();
+        const filename = `surveys/${userId}/${timestamp}_${index}_${image.name}`;
+        const storageRef = ref(storage, filename);
+        
+        // Upload the file
+        await uploadBytes(storageRef, image);
+        
+        // Get the download URL
+        const downloadURL = await getDownloadURL(storageRef);
+        return downloadURL;
+      } catch (error) {
+        console.error(`Error uploading image ${index}:`, error);
+        throw new Error(`Failed to upload image ${index + 1}`);
+      }
+    });
+
+    try {
+      const urls = await Promise.all(uploadPromises);
+      return urls;
+    } finally {
+      setUploadingImages(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,6 +129,9 @@ export default function CreateSurvey() {
 
     setSaving(true);
     try {
+      // Upload images first
+      const imageUrls = await uploadImages(user.id);
+
       const surveyData: Omit<Survey, 'id' | 'createdAt' | 'updatedAt'> = {
         ...formData,
         rfpNumber: String(formData.rfpNumber || ''),
@@ -60,6 +141,7 @@ export default function CreateSurvey() {
         userId: user.id,
         userPhone: user.phoneNumber || undefined,
         userName: user.name || undefined,
+        imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
       } as Omit<Survey, 'id' | 'createdAt' | 'updatedAt'>;
 
       const surveyId = await createSurvey(user.id, surveyData);
@@ -499,12 +581,58 @@ export default function CreateSurvey() {
             </div>
           </div>
 
+          <div className="form-section">
+            <h3>Images (Up to 3 images)</h3>
+            <div className="images-upload-section">
+              {[0, 1, 2].map((index) => (
+                <div key={index} className="image-upload-item">
+                  <label className="image-upload-label">
+                    Image {index + 1}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        handleImageChange(index, file);
+                      }}
+                      style={{ display: 'none' }}
+                      disabled={saving || uploadingImages}
+                    />
+                    <div className="image-upload-box">
+                      {imagePreviews[index] ? (
+                        <div className="image-preview-container">
+                          <img src={imagePreviews[index]} alt={`Preview ${index + 1}`} className="image-preview" />
+                          <button
+                            type="button"
+                            onClick={() => removeImage(index)}
+                            className="remove-image-button"
+                            disabled={saving || uploadingImages}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="image-upload-placeholder">
+                          <span>📷</span>
+                          <span>Click to upload</span>
+                        </div>
+                      )}
+                    </div>
+                  </label>
+                </div>
+              ))}
+            </div>
+            {uploadingImages && (
+              <div className="upload-status">Uploading images...</div>
+            )}
+          </div>
+
           <div className="form-actions">
             <button type="button" onClick={() => navigate('/dashboard')} className="cancel-button">
               Cancel
             </button>
-            <button type="submit" disabled={saving} className="save-button">
-              {saving ? 'Creating...' : 'Create Survey'}
+            <button type="submit" disabled={saving || uploadingImages} className="save-button">
+              {saving || uploadingImages ? (uploadingImages ? 'Uploading Images...' : 'Creating...') : 'Create Survey'}
             </button>
           </div>
         </form>
