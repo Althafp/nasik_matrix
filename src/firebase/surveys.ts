@@ -158,10 +158,12 @@ export async function updateSurvey(
 ): Promise<void> {
   try {
     const surveyRef = doc(db, 'users', userId, 'surveys', surveyId);
-    await updateDoc(surveyRef, {
+    // Remove undefined values before updating Firestore
+    const cleanedUpdates = removeUndefined({
       ...updates,
       updatedAt: Timestamp.now()
     });
+    await updateDoc(surveyRef, cleanedUpdates);
   } catch (error) {
     console.error('Error updating survey:', error);
     throw error;
