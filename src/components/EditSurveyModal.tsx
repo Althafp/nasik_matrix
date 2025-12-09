@@ -172,7 +172,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.latitude || ''}
-                  onChange={(e) => handleChange('latitude', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('latitude', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -181,7 +181,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.longitude || ''}
-                  onChange={(e) => handleChange('longitude', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('longitude', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
             </div>
@@ -207,7 +207,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.cableTrenching || ''}
-                  onChange={(e) => handleChange('cableTrenching', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('cableTrenching', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -222,8 +222,8 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                 <label>No. of Roads</label>
                 <input
                   type="number"
-                  value={formData.noOfRoads || ''}
-                  onChange={(e) => handleChange('noOfRoads', parseInt(e.target.value) || undefined)}
+                  value={formData.noOfRoads !== undefined && formData.noOfRoads !== null ? formData.noOfRoads : ''}
+                  onChange={(e) => handleChange('noOfRoads', e.target.value === '' ? undefined : parseInt(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -259,7 +259,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.distanceFromExistingPole || ''}
-                  onChange={(e) => handleChange('distanceFromExistingPole', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('distanceFromExistingPole', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -274,16 +274,16 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                 <label>No. of Cameras</label>
                 <input
                   type="number"
-                  value={formData.noOfCameras || ''}
-                  onChange={(e) => handleChange('noOfCameras', parseInt(e.target.value) || undefined)}
+                  value={formData.noOfCameras !== undefined && formData.noOfCameras !== null ? formData.noOfCameras : ''}
+                  onChange={(e) => handleChange('noOfCameras', e.target.value === '' ? undefined : parseInt(e.target.value))}
                 />
               </div>
               <div className="form-group">
                 <label>No. of Poles</label>
                 <input
                   type="number"
-                  value={formData.noOfPoles || ''}
-                  onChange={(e) => handleChange('noOfPoles', parseInt(e.target.value) || undefined)}
+                  value={formData.noOfPoles !== undefined && formData.noOfPoles !== null ? formData.noOfPoles : ''}
+                  onChange={(e) => handleChange('noOfPoles', e.target.value === '' ? undefined : parseInt(e.target.value))}
                 />
               </div>
             </div>
@@ -298,7 +298,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.powerCable || ''}
-                  onChange={(e) => handleChange('powerCable', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('powerCable', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -307,7 +307,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.cat6Cable || ''}
-                  onChange={(e) => handleChange('cat6Cable', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('cat6Cable', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -316,7 +316,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.irCable || ''}
-                  onChange={(e) => handleChange('irCable', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('irCable', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -325,7 +325,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.hdpPowerTrenching || ''}
-                  onChange={(e) => handleChange('hdpPowerTrenching', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('hdpPowerTrenching', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -334,7 +334,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.roadCrossingLength || ''}
-                  onChange={(e) => handleChange('roadCrossingLength', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('roadCrossingLength', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
             </div>
@@ -347,40 +347,40 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                 <label>Fixed Box Camera</label>
                 <input
                   type="number"
-                  value={formData.fixedBoxCamera || ''}
-                  onChange={(e) => handleChange('fixedBoxCamera', parseInt(e.target.value) || undefined)}
+                  value={formData.fixedBoxCamera !== undefined && formData.fixedBoxCamera !== null ? formData.fixedBoxCamera : ''}
+                  onChange={(e) => handleChange('fixedBoxCamera', e.target.value === '' ? undefined : parseInt(e.target.value))}
                 />
               </div>
               <div className="form-group">
                 <label>PTZ</label>
                 <input
                   type="number"
-                  value={formData.ptz || ''}
-                  onChange={(e) => handleChange('ptz', parseInt(e.target.value) || undefined)}
+                  value={formData.ptz !== undefined && formData.ptz !== null ? formData.ptz : ''}
+                  onChange={(e) => handleChange('ptz', e.target.value === '' ? undefined : parseInt(e.target.value))}
                 />
               </div>
               <div className="form-group">
                 <label>ANPR Camera</label>
                 <input
                   type="number"
-                  value={formData.anprCamera || ''}
-                  onChange={(e) => handleChange('anprCamera', parseInt(e.target.value) || undefined)}
+                  value={formData.anprCamera !== undefined && formData.anprCamera !== null ? formData.anprCamera : ''}
+                  onChange={(e) => handleChange('anprCamera', e.target.value === '' ? undefined : parseInt(e.target.value))}
                 />
               </div>
               <div className="form-group">
                 <label>Total Cameras</label>
                 <input
                   type="number"
-                  value={formData.totalCameras || ''}
-                  onChange={(e) => handleChange('totalCameras', parseInt(e.target.value) || undefined)}
+                  value={formData.totalCameras !== undefined && formData.totalCameras !== null ? formData.totalCameras : ''}
+                  onChange={(e) => handleChange('totalCameras', e.target.value === '' ? undefined : parseInt(e.target.value))}
                 />
               </div>
               <div className="form-group">
                 <label>PA System</label>
                 <input
                   type="number"
-                  value={formData.paSystem || ''}
-                  onChange={(e) => handleChange('paSystem', parseInt(e.target.value) || undefined)}
+                  value={formData.paSystem !== undefined && formData.paSystem !== null ? formData.paSystem : ''}
+                  onChange={(e) => handleChange('paSystem', e.target.value === '' ? undefined : parseInt(e.target.value))}
                 />
               </div>
             </div>
@@ -479,7 +479,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.parentPoleDistance || ''}
-                  onChange={(e) => handleChange('parentPoleDistance', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('parentPoleDistance', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -488,7 +488,7 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
                   type="number"
                   step="any"
                   value={formData.parentPoleRoadCrossing || ''}
-                  onChange={(e) => handleChange('parentPoleRoadCrossing', parseFloat(e.target.value) || undefined)}
+                  onChange={(e) => handleChange('parentPoleRoadCrossing', e.target.value === '' ? undefined : parseFloat(e.target.value))}
                 />
               </div>
               <div className="form-group">

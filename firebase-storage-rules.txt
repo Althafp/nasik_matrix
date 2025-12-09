@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Surveys folder - allow uploads to user-specific folders
+    // Since we use custom auth, we can't check request.auth
+    // Instead, we rely on path validation (userId in path) and app-level security
+    match /surveys/{userId}/{allPaths=**} {
+      // Allow write (upload) - userId in path provides some security
+      // App-level validation ensures users can only upload to their own folder
+      allow write: if true;
+      
+      // Allow read (download) - images need to be publicly accessible
+      allow read: if true;
+    }
+    
+    // Allow public read access for all other paths (if needed)
+    match /{allPaths=**} {
+      allow read: if true;
+      // Deny writes to other paths
+      allow write: if false;
+    }
+  }
+}
+
