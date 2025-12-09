@@ -8,6 +8,7 @@ import {
   getDoc,
   deleteDoc,
   updateDoc,
+  addDoc,
   Timestamp
 } from 'firebase/firestore';
 import { db, storage } from './config';
@@ -17,7 +18,7 @@ export type Survey = {
   id: string;
   policeStation: string;
   rfpNumber: number;
-  poleId: number;
+  poleId: string;
   locationName: string;
   locationCategories: string[];
   powerSubstation?: string;
@@ -32,6 +33,7 @@ export type Survey = {
   cantileverType?: string;
   existingCctvPole?: boolean | null;
   distanceFromExistingPole?: number;
+  jb?: string;
   noOfCameras?: number;
   noOfPoles?: number;
   powerCable?: number;
@@ -115,6 +117,36 @@ export async function getSurveyById(userId: string, surveyId: string): Promise<S
   } catch (error) {
     console.error('Error fetching survey:', error);
     return null;
+  }
+}
+
+// Helper function to remove undefined values from an object
+function removeUndefined(obj: any): any {
+  const cleaned: any = {};
+  for (const key in obj) {
+    if (obj[key] !== undefined) {
+      cleaned[key] = obj[key];
+    }
+  }
+  return cleaned;
+}
+
+// Create a new survey
+export async function createSurvey(userId: string, surveyData: Omit<Survey, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  try {
+    const surveysRef = collection(db, 'users', userId, 'surveys');
+    // Remove undefined values before saving to Firestore
+    const cleanedData = removeUndefined({
+      ...surveyData,
+      userId,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    });
+    const docRef = await addDoc(surveysRef, cleanedData);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating survey:', error);
+    throw error;
   }
 }
 

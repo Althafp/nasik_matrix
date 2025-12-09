@@ -225,6 +225,7 @@ export default function SurveyDetails() {
                 value={survey.existingCctvPole === true ? 'Yes' : survey.existingCctvPole === false ? 'No' : 'N/A'} 
               />
               <DetailItem label="Distance from Existing Pole (m)" value={survey.distanceFromExistingPole} />
+              <DetailItem label="JB" value={survey.jb} />
               <DetailItem label="No. of Cameras" value={survey.noOfCameras} />
               <DetailItem label="No. of Poles" value={survey.noOfPoles} />
             </div>

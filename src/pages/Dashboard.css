@@ -31,6 +31,28 @@
   opacity: 0.9;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.create-survey-button {
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.3s;
+}
+
+.create-survey-button:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
 .sign-out-button {
   padding: 10px 20px;
   background: rgba(255, 255, 255, 0.2);
@@ -90,6 +112,66 @@
   color: #667eea;
   border-bottom-color: #667eea;
   font-weight: 600;
+}
+
+.search-section {
+  margin: 20px 0;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.search-fields {
+  display: flex;
+  gap: 15px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.search-field {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 200px;
+}
+
+.search-field label {
+  margin-bottom: 5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.search-field input {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.search-field input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.clear-search-button {
+  padding: 10px 20px;
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.clear-search-button:hover {
+  background: #e0e0e0;
+  color: #333;
 }
 
 .surveys-header {

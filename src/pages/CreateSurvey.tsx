@@ -1,65 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import type { Survey } from '../firebase/surveys';
-import './EditSurveyModal.css';
+import { createSurvey } from '../firebase/surveys';
+import './CreateSurvey.css';
 
-interface EditSurveyModalProps {
-  survey: Survey;
-  onClose: () => void;
-  onSave: (updatedSurvey: Partial<Survey>) => Promise<void>;
-}
-
-export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyModalProps) {
-  const [formData, setFormData] = useState<Partial<Survey>>({});
+export default function CreateSurvey() {
+  const { user, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  const [formData, setFormData] = useState<Partial<Survey>>({
+    rfpNumber: '',
+    poleId: '',
+    locationName: '',
+    policeStation: '',
+    locationCategories: [],
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    // Initialize form data with current survey values
-    setFormData({
-      rfpNumber: survey.rfpNumber,
-      poleId: survey.poleId,
-      locationName: survey.locationName,
-      policeStation: survey.policeStation,
-      locationCategories: survey.locationCategories || [],
-      powerSubstation: survey.powerSubstation,
-      nearestLandmark: survey.nearestLandmark,
-      latitude: survey.latitude,
-      longitude: survey.longitude,
-      powerSourceAvailability: survey.powerSourceAvailability,
-      cableTrenching: survey.cableTrenching,
-      roadType: survey.roadType,
-      noOfRoads: survey.noOfRoads,
-      poleSize: survey.poleSize,
-      cantileverType: survey.cantileverType,
-      existingCctvPole: survey.existingCctvPole,
-      distanceFromExistingPole: survey.distanceFromExistingPole,
-      noOfCameras: survey.noOfCameras,
-      noOfPoles: survey.noOfPoles,
-      powerCable: survey.powerCable,
-      cat6Cable: survey.cat6Cable,
-      irCable: survey.irCable,
-      hdpPowerTrenching: survey.hdpPowerTrenching,
-      roadCrossingLength: survey.roadCrossingLength,
-      fixedBoxCamera: survey.fixedBoxCamera,
-      ptz: survey.ptz,
-      anprCamera: survey.anprCamera,
-      totalCameras: survey.totalCameras,
-      paSystem: survey.paSystem,
-      crowdSafetyOptions: survey.crowdSafetyOptions || [],
-      investigationOptions: survey.investigationOptions || [],
-      publicOrderOptions: survey.publicOrderOptions || [],
-      trafficOptions: survey.trafficOptions || [],
-      safetyOptions: survey.safetyOptions || [],
-      anpr: survey.anpr,
-      frs: survey.frs,
-      remarks: survey.remarks,
-      parentPoleId: survey.parentPoleId,
-      parentPoleDistance: survey.parentPoleDistance,
-      parentPoleRoadCrossing: survey.parentPoleRoadCrossing,
-      parentPoleRoadType: survey.parentPoleRoadType,
-      jb: survey.jb,
-    });
-  }, [survey]);
 
   const handleChange = (field: keyof Survey, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -80,26 +37,66 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setSaving(true);
 
+    if (!user) {
+      setError('You must be logged in to create a survey');
+      return;
+    }
+
+    // Validate required fields
+    if (!formData.rfpNumber || !formData.poleId || !formData.locationName || !formData.policeStation) {
+      setError('Please fill in all required fields (RFP Number, Pole ID, Location Name, Police Station)');
+      return;
+    }
+
+    setSaving(true);
     try {
-      await onSave(formData);
+      const surveyData: Omit<Survey, 'id' | 'createdAt' | 'updatedAt'> = {
+        ...formData,
+        rfpNumber: formData.rfpNumber ? Number(formData.rfpNumber) : 0,
+        poleId: String(formData.poleId || ''),
+        locationName: String(formData.locationName || ''),
+        policeStation: String(formData.policeStation || ''),
+        userId: user.id,
+        userPhone: user.phoneNumber || undefined,
+        userName: user.name || undefined,
+      } as Omit<Survey, 'id' | 'createdAt' | 'updatedAt'>;
+
+      const surveyId = await createSurvey(user.id, surveyData);
+      navigate(`/survey/${user.id}/${surveyId}`);
     } catch (err: any) {
-      setError(err.message || 'Failed to save survey');
+      setError(err.message || 'Failed to create survey');
     } finally {
       setSaving(false);
     }
   };
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Edit Survey</h2>
-          <button className="modal-close" onClick={onClose}>×</button>
-        </div>
+  if (authLoading) {
+    return (
+      <div className="create-survey-container">
+        <div className="loading-spinner">Loading...</div>
+      </div>
+    );
+  }
 
-        <form onSubmit={handleSubmit} className="edit-form">
+  if (!user) {
+    navigate('/login');
+    return null;
+  }
+
+  return (
+    <div className="create-survey-container">
+      <header className="create-survey-header">
+        <div>
+          <button onClick={() => navigate('/dashboard')} className="back-button">
+            ← Back to Dashboard
+          </button>
+          <h1>Create New Survey</h1>
+        </div>
+      </header>
+
+      <main className="create-survey-main">
+        <form onSubmit={handleSubmit} className="create-survey-form">
           {error && <div className="error-message">{error}</div>}
 
           <div className="form-section">
@@ -502,16 +499,16 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
             </div>
           </div>
 
-          <div className="modal-actions">
-            <button type="button" onClick={onClose} className="cancel-button">
+          <div className="form-actions">
+            <button type="button" onClick={() => navigate('/dashboard')} className="cancel-button">
               Cancel
             </button>
             <button type="submit" disabled={saving} className="save-button">
-              {saving ? 'Saving...' : 'Save Changes'}
+              {saving ? 'Creating...' : 'Create Survey'}
             </button>
           </div>
         </form>
-      </div>
+      </main>
     </div>
   );
 }

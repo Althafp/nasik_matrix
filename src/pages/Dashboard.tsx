@@ -19,6 +19,8 @@ export default function Dashboard() {
   const [activeSection, setActiveSection] = useState<Section>(isAdmin ? 'all' : 'my');
   const [viewMode, setViewMode] = useState<ViewMode>('normal');
   const [exporting, setExporting] = useState(false);
+  const [searchRfp, setSearchRfp] = useState('');
+  const [searchPoliceStation, setSearchPoliceStation] = useState('');
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -59,7 +61,16 @@ export default function Dashboard() {
     }
   };
 
-  const currentSurveys = activeSection === 'all' ? allSurveys : mySurveys;
+  // Filter surveys based on search
+  const filteredSurveys = (activeSection === 'all' ? allSurveys : mySurveys).filter(survey => {
+    const matchesRfp = !searchRfp || 
+      (survey.rfpNumber && String(survey.rfpNumber).toLowerCase().includes(searchRfp.toLowerCase()));
+    const matchesPoliceStation = !searchPoliceStation || 
+      (survey.policeStation && survey.policeStation.toLowerCase().includes(searchPoliceStation.toLowerCase()));
+    return matchesRfp && matchesPoliceStation;
+  });
+
+  const currentSurveys = filteredSurveys;
 
   const handleSignOut = () => {
     signOut();
@@ -115,9 +126,14 @@ export default function Dashboard() {
               {isAdmin ? 'Admin Dashboard' : 'My Surveys'} | {user?.name || user?.phoneNumber}
             </p>
           </div>
-          <button onClick={handleSignOut} className="sign-out-button">
-            Sign Out
-          </button>
+          <div className="header-buttons">
+            <button onClick={() => navigate('/create-survey')} className="create-survey-button">
+              ➕ Create Survey
+            </button>
+            <button onClick={handleSignOut} className="sign-out-button">
+              Sign Out
+            </button>
+          </div>
         </div>
       </header>
 
@@ -139,9 +155,49 @@ export default function Dashboard() {
             </button>
           </div>
 
+          {/* Search Section */}
+          <div className="search-section">
+            <div className="search-fields">
+              <div className="search-field">
+                <label htmlFor="search-rfp">Search RFP Number:</label>
+                <input
+                  type="text"
+                  id="search-rfp"
+                  value={searchRfp}
+                  onChange={(e) => setSearchRfp(e.target.value)}
+                  placeholder="Enter RFP number..."
+                />
+              </div>
+              <div className="search-field">
+                <label htmlFor="search-police-station">Search Police Station:</label>
+                <input
+                  type="text"
+                  id="search-police-station"
+                  value={searchPoliceStation}
+                  onChange={(e) => setSearchPoliceStation(e.target.value)}
+                  placeholder="Enter police station..."
+                />
+              </div>
+              {(searchRfp || searchPoliceStation) && (
+                <button
+                  onClick={() => {
+                    setSearchRfp('');
+                    setSearchPoliceStation('');
+                  }}
+                  className="clear-search-button"
+                >
+                  Clear Search
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* View Mode Toggle and Header */}
           <div className="surveys-header">
-            <h2>{activeSection === 'all' ? 'All Surveys' : 'My Surveys'}</h2>
+            <h2>
+              {activeSection === 'all' ? 'All Surveys' : 'My Surveys'} 
+              {(searchRfp || searchPoliceStation) && ` (${currentSurveys.length} found)`}
+            </h2>
             <div className="header-actions">
               <div className="view-toggle">
                 <button
@@ -262,6 +318,7 @@ export default function Dashboard() {
                     <th>Cantilever</th>
                     <th>Exist CCTV</th>
                     <th>Distance from pole to existing pole</th>
+                    <th>JB</th>
                     <th>No. of cameras</th>
                     <th>Fixed Box Camera</th>
                     <th>No. of poles</th>
@@ -328,6 +385,7 @@ export default function Dashboard() {
                           : 'N/A'}
                       </td>
                       <td>{survey.distanceFromExistingPole || 'N/A'}</td>
+                      <td>{survey.jb || 'N/A'}</td>
                       <td>{survey.noOfCameras || 0}</td>
                       <td>{survey.fixedBoxCamera || 0}</td>
                       <td>{survey.noOfPoles || 'N/A'}</td>

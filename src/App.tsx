@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import SurveyDetails from './pages/SurveyDetails';
+import CreateSurvey from './pages/CreateSurvey';
 import './App.css';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,14 @@ function App() {
         element={
           <PrivateRoute>
             <SurveyDetails />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/create-survey"
+        element={
+          <PrivateRoute>
+            <CreateSurvey />
           </PrivateRoute>
         }
       />
