@@ -9,7 +9,7 @@ export default function CreateSurvey() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [formData, setFormData] = useState<Partial<Survey>>({
-    rfpNumber: '',
+    rfpNumber: undefined,
     poleId: '',
     locationName: '',
     policeStation: '',
