@@ -9,7 +9,7 @@ export default function CreateSurvey() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [formData, setFormData] = useState<Partial<Survey>>({
-    rfpNumber: undefined,
+    rfpNumber: '',
     poleId: '',
     locationName: '',
     policeStation: '',
@@ -53,7 +53,7 @@ export default function CreateSurvey() {
     try {
       const surveyData: Omit<Survey, 'id' | 'createdAt' | 'updatedAt'> = {
         ...formData,
-        rfpNumber: formData.rfpNumber ? Number(formData.rfpNumber) : 0,
+        rfpNumber: String(formData.rfpNumber || ''),
         poleId: String(formData.poleId || ''),
         locationName: String(formData.locationName || ''),
         policeStation: String(formData.policeStation || ''),
@@ -105,9 +105,9 @@ export default function CreateSurvey() {
               <div className="form-group">
                 <label>RFP Number *</label>
                 <input
-                  type="number"
+                  type="text"
                   value={formData.rfpNumber || ''}
-                  onChange={(e) => handleChange('rfpNumber', e.target.value ? Number(e.target.value) : undefined)}
+                  onChange={(e) => handleChange('rfpNumber', e.target.value)}
                   required
                 />
               </div>

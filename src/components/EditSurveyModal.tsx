@@ -108,9 +108,9 @@ export default function EditSurveyModal({ survey, onClose, onSave }: EditSurveyM
               <div className="form-group">
                 <label>RFP Number *</label>
                 <input
-                  type="number"
+                  type="text"
                   value={formData.rfpNumber || ''}
-                  onChange={(e) => handleChange('rfpNumber', e.target.value ? Number(e.target.value) : undefined)}
+                  onChange={(e) => handleChange('rfpNumber', e.target.value)}
                   required
                 />
               </div>

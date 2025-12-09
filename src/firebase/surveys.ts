@@ -17,7 +17,7 @@ import { ref, deleteObject } from 'firebase/storage';
 export type Survey = {
   id: string;
   policeStation: string;
-  rfpNumber: number;
+  rfpNumber: string;
   poleId: string;
   locationName: string;
   locationCategories: string[];
