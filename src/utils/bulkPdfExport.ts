@@ -1,9 +1,25 @@
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import type { Survey } from '../firebase/surveys';
 
-// Helper function to format date
-const formatDate = (timestamp: any) => {
+// Helper function to load image as base64
+async function loadImageAsBase64(url: string): Promise<string> {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('Error loading image:', error);
+    return '';
+  }
+}
+
+// Format date helper
+function formatDate(timestamp: any): string {
   if (!timestamp) return 'N/A';
   const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
   return date.toLocaleDateString('en-IN', {
@@ -13,549 +29,425 @@ const formatDate = (timestamp: any) => {
     hour: '2-digit',
     minute: '2-digit'
   });
-};
+}
 
+// Format value helper
+function formatValue(value: any): string {
+  if (value === undefined || value === null || value === '') {
+    return 'N/A';
+  }
+  return String(value);
+}
 
-// Helper function to load image as base64 (with size optimization for speed)
-async function loadImageAsBase64(url: string): Promise<string> {
+// Add footer to PDF page
+function addPageFooter(doc: jsPDF, pageNum: number, totalPages: number) {
+  doc.setTextColor(128, 128, 128);
+  doc.setFontSize(8);
+  doc.text(`Page ${pageNum}/${totalPages}`, 105, 290, { align: 'center' });
+  doc.text(`Generated on ${new Date().toLocaleDateString('en-IN')}`, 105, 295, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+}
+
+// Add a field to PDF
+function addField(doc: jsPDF, x: number, y: number, label: string, value: string, width: number = 95): number {
+  const padding = 3;
+  
+  // Field background
+  doc.setFillColor(248, 249, 250); // #f8f9fa
+  doc.roundedRect(x, y, width, 12, 2, 2, 'F');
+  
+  // Left border accent - light gray instead of blue
+  doc.setFillColor(200, 200, 200); // Light gray
+  doc.rect(x, y, 2, 12, 'F');
+  
+  // Label
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(102, 102, 102); // #666
+  doc.text(label.toUpperCase(), x + 5, y + 5);
+  
+  // Value
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(51, 51, 51); // #333
+  const valueY = y + 9;
+  const maxWidth = width - 10;
+  const lines = doc.splitTextToSize(value, maxWidth);
+  doc.text(lines[0], x + 5, valueY);
+  
+  return 12 + padding; // Return height used
+}
+
+// Add section title
+function addSectionTitle(doc: jsPDF, y: number, title: string): number {
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(51, 51, 51); // Dark gray instead of blue
+  doc.text(title, 10, y);
+  
+  // Underline
+  doc.setDrawColor(200, 200, 200); // Light gray instead of blue
+  doc.setLineWidth(0.5);
+  doc.line(10, y + 1, 200, y + 1);
+  
+  return 8; // Return height used
+}
+
+// Add image to PDF
+async function addImageToPDF(doc: jsPDF, x: number, y: number, imageData: string, width: number, height: number): Promise<void> {
   try {
-    const response = await fetch(url, { 
-      mode: 'cors',
-      cache: 'default'
-    });
-    
-    if (!response.ok) {
-      console.warn(`Failed to fetch image: ${url}, status: ${response.status}`);
-      return '';
-    }
-    
-    const blob = await response.blob();
-    
-    // Create a canvas to resize/compress the image for better PDF quality
-    return new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        
-        img.onload = () => {
-          // Resize image to max 1000px width for good quality while keeping file size reasonable
-          const maxWidth = 1000;
-          const maxHeight = 800;
-          let width = img.width;
-          let height = img.height;
-          
-          if (width > maxWidth || height > maxHeight) {
-            const ratio = Math.min(maxWidth / width, maxHeight / height);
-            width = width * ratio;
-            height = height * ratio;
-          }
-          
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            // Use JPEG with good quality (0.85) for better image quality in PDF
-            const compressed = canvas.toDataURL('image/jpeg', 0.85);
-            resolve(compressed);
-          } else {
-            resolve(reader.result as string);
-          }
-        };
-        img.onerror = () => {
-          console.warn(`Failed to load image: ${url}`);
-          resolve(''); // Return empty string if image fails to load
-        };
-        img.src = reader.result as string;
-      };
-      reader.onerror = () => {
-        console.warn(`Failed to read image blob: ${url}`);
-        resolve('');
-      };
-      reader.readAsDataURL(blob);
-    });
+    doc.addImage(imageData, 'PNG', x, y, width, height);
   } catch (error) {
-    console.error('Error loading image:', error);
-    return '';
+    console.error('Error adding image to PDF:', error);
+    // Draw white rectangle as placeholder
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(x, y, width, height, 2, 2, 'F');
+    doc.setDrawColor(224, 224, 224);
+    doc.setLineWidth(1);
+    doc.roundedRect(x, y, width, height, 2, 2);
   }
 }
 
-// Create HTML content for a survey
-async function createSurveyHTML(survey: Survey): Promise<string> {
-  // Load images as base64
-  let imagesHTML = '';
-  if (survey.imageUrls && survey.imageUrls.length > 0) {
-    const imagePromises = survey.imageUrls.map(async (url, index) => {
-      const base64 = await loadImageAsBase64(url);
-      if (base64) {
-        return `
-          <div style="border-radius: 8px; overflow: hidden; border: 2px solid #e0e0e0; background: #f5f5f5; page-break-inside: avoid;">
-            <img src="${base64}" alt="Survey image ${index + 1}" style="width: 100%; height: auto; display: block;" />
-          </div>
-        `;
-      }
-      return '';
-    });
-    const imageElements = await Promise.all(imagePromises);
-    imagesHTML = imageElements.filter(img => img).join('');
-  }
-
-  const currentDate = new Date().toLocaleDateString('en-IN', { 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
+// Generate PDF using jsPDF native API with full control
+async function generateSinglePDFBlob(survey: Survey): Promise<{ blob: Blob; filename: string }> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+    compress: true
   });
 
-  return `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 0; background: white; max-width: 800px; margin: 0 auto;">
-      <!-- Professional Header -->
-      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px 40px; margin-bottom: 30px;">
-        <div style="text-align: center;">
-          <h1 style="margin: 0 0 10px 0; font-size: 28px; font-weight: 700; letter-spacing: 0.5px;">SITE SURVEY REPORT</h1>
-          <div style="height: 2px; background: rgba(255,255,255,0.3); margin: 15px 0;"></div>
-          <p style="margin: 10px 0 0 0; font-size: 14px; opacity: 0.95;">CCTV Infrastructure Survey Documentation</p>
-        </div>
-      </div>
-
-      <!-- Document Info Box -->
-      <div style="background: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; margin: 0 40px 30px 40px; border-radius: 4px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 8px 12px; font-weight: 600; color: #2c3e50; width: 35%;">Report Date:</td>
-            <td style="padding: 8px 12px; color: #34495e;">${currentDate}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 12px; font-weight: 600; color: #2c3e50;">RFP Number:</td>
-            <td style="padding: 8px 12px; color: #34495e; font-weight: 600;">${survey.rfpNumber || 'N/A'}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 12px; font-weight: 600; color: #2c3e50;">Pole ID:</td>
-            <td style="padding: 8px 12px; color: #34495e; font-weight: 600;">${survey.poleId || 'N/A'}</td>
-          </tr>
-        </table>
-      </div>
-      
-      <!-- Section 1: General Information -->
-      <div style="margin: 0 40px 30px 40px; page-break-inside: avoid;">
-        <h2 style="color: #333; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; padding-bottom: 10px; border-bottom: 2px solid #667eea;">General Information</h2>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">RFP Number:</span>
-            <span style="color: #333; font-size: 14px; font-weight: 600;">${survey.rfpNumber || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Pole ID:</span>
-            <span style="color: #333; font-size: 14px; font-weight: 600;">${survey.poleId || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Location Name:</span>
-            <span style="color: #333; font-size: 14px;">${survey.locationName || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Police Station:</span>
-            <span style="color: #333; font-size: 14px;">${survey.policeStation || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Location Categories:</span>
-            <span style="color: #333; font-size: 14px;">${survey.locationCategories?.join(', ') || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Power Substation:</span>
-            <span style="color: #333; font-size: 14px;">${survey.powerSubstation || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Nearest Landmark:</span>
-            <span style="color: #333; font-size: 14px;">${survey.nearestLandmark || 'N/A'}</span>
-          </div>
-          ${survey.latitude && survey.longitude ? `
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Coordinates:</span>
-            <span style="color: #333; font-size: 14px;">${survey.latitude}, ${survey.longitude}</span>
-          </div>
-          ` : ''}
-        </div>
-      </div>
-
-      <!-- Section 2: Infrastructure Details -->
-      <div style="margin: 0 40px 30px 40px; page-break-inside: avoid;">
-        <h2 style="color: #333; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; padding-bottom: 10px; border-bottom: 2px solid #667eea;">Infrastructure Details</h2>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Power Source Available:</span>
-            <span style="color: #333; font-size: 14px;">
-              ${survey.powerSourceAvailability === true ? '<span style="padding: 4px 8px; background: #d4edda; color: #155724; border-radius: 4px; font-weight: 600;">Yes</span>' : 
-                survey.powerSourceAvailability === false ? '<span style="padding: 4px 8px; background: #f8d7da; color: #721c24; border-radius: 4px; font-weight: 600;">No</span>' : 'N/A'}
-            </span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Cable Trenching (m):</span>
-            <span style="color: #333; font-size: 14px;">${survey.cableTrenching || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Road Type:</span>
-            <span style="color: #333; font-size: 14px;">${survey.roadType || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">No. of Roads:</span>
-            <span style="color: #333; font-size: 14px;">${survey.noOfRoads !== undefined && survey.noOfRoads !== null ? survey.noOfRoads : 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Pole Size:</span>
-            <span style="color: #333; font-size: 14px;">${survey.poleSize || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Cantilever Type:</span>
-            <span style="color: #333; font-size: 14px;">${survey.cantileverType || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Existing CCTV Pole:</span>
-            <span style="color: #333; font-size: 14px;">
-              ${survey.existingCctvPole === true ? '<span style="padding: 4px 8px; background: #d4edda; color: #155724; border-radius: 4px; font-weight: 600;">Yes</span>' : 
-                survey.existingCctvPole === false ? '<span style="padding: 4px 8px; background: #f8d7da; color: #721c24; border-radius: 4px; font-weight: 600;">No</span>' : 'N/A'}
-            </span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Distance from Existing Pole (m):</span>
-            <span style="color: #333; font-size: 14px;">${survey.distanceFromExistingPole || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">JB:</span>
-            <span style="color: #333; font-size: 14px;">${survey.jb || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">No. of Cameras:</span>
-            <span style="color: #667eea; font-size: 16px; font-weight: 600;">${survey.noOfCameras !== undefined && survey.noOfCameras !== null ? survey.noOfCameras : 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">No. of Poles:</span>
-            <span style="color: #667eea; font-size: 16px; font-weight: 600;">${survey.noOfPoles !== undefined && survey.noOfPoles !== null ? survey.noOfPoles : 'N/A'}</span>
-          </div>
-        </div>
-      </div>
-
-
-      <!-- Section 5: Type of Analytics -->
-      <div style="margin: 0 40px 30px 40px; page-break-inside: avoid;">
-        <h2 style="color: #333; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; padding-bottom: 10px; border-bottom: 2px solid #667eea;">Type of Analytics</h2>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Crowd Safety Options:</span>
-            <span style="color: #333; font-size: 14px;">${survey.crowdSafetyOptions?.join(', ') || 'None'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Investigation Options:</span>
-            <span style="color: #333; font-size: 14px;">${survey.investigationOptions?.join(', ') || 'None'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Public Order Options:</span>
-            <span style="color: #333; font-size: 14px;">${survey.publicOrderOptions?.join(', ') || 'None'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Traffic Options:</span>
-            <span style="color: #333; font-size: 14px;">${survey.trafficOptions?.join(', ') || 'None'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Safety Options:</span>
-            <span style="color: #333; font-size: 14px;">${survey.safetyOptions?.join(', ') || 'None'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">ANPR:</span>
-            <span style="color: #333; font-size: 14px;">
-              ${survey.anpr === true ? '<span style="padding: 4px 8px; background: #d4edda; color: #155724; border-radius: 4px; font-weight: 600;">Yes</span>' : 
-                survey.anpr === false ? '<span style="padding: 4px 8px; background: #f8d7da; color: #721c24; border-radius: 4px; font-weight: 600;">No</span>' : 'N/A'}
-            </span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">FRS:</span>
-            <span style="color: #333; font-size: 14px;">
-              ${survey.frs === true ? '<span style="padding: 4px 8px; background: #d4edda; color: #155724; border-radius: 4px; font-weight: 600;">Yes</span>' : 
-                survey.frs === false ? '<span style="padding: 4px 8px; background: #f8d7da; color: #721c24; border-radius: 4px; font-weight: 600;">No</span>' : 'N/A'}
-            </span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px; grid-column: 1 / -1;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Remarks:</span>
-            <span style="color: #333; font-size: 14px;">${survey.remarks || 'N/A'}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Section 6: Parent Pole -->
-      <div style="margin: 0 40px 30px 40px; page-break-inside: avoid;">
-        <h2 style="color: #333; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; padding-bottom: 10px; border-bottom: 2px solid #667eea;">PARENT POLE FOR POWER SOURCE</h2>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Parent pole ID:</span>
-            <span style="color: #333; font-size: 14px;">${survey.parentPoleId || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Parent pole distance:</span>
-            <span style="color: #333; font-size: 14px;">${survey.parentPoleDistance || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Road crossing length from parent pole:</span>
-            <span style="color: #333; font-size: 14px;">${survey.parentPoleRoadCrossing || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Parent road type:</span>
-            <span style="color: #333; font-size: 14px;">${survey.parentPoleRoadType || 'N/A'}</span>
-          </div>
-        </div>
-      </div>
-
-      ${survey.imageUrls && survey.imageUrls.length > 0 ? `
-      <!-- Section 7: Images -->
-      <div style="margin: 0 40px 30px 40px; page-break-inside: avoid;">
-        <h2 style="color: #333; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; padding-bottom: 10px; border-bottom: 2px solid #667eea;">Images (${survey.imageUrls.length})</h2>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-          ${imagesHTML}
-        </div>
-      </div>
-      ` : ''}
-
-      <!-- Section 8: Metadata -->
-      <div style="margin: 0 40px 30px 40px; page-break-inside: avoid;">
-        <h2 style="color: #333; font-size: 20px; font-weight: 600; margin: 0 0 20px 0; padding-bottom: 10px; border-bottom: 2px solid #667eea;">Metadata</h2>
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Submitted By:</span>
-            <span style="color: #333; font-size: 14px;">${survey.userName || survey.userPhone || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">User Phone:</span>
-            <span style="color: #333; font-size: 14px;">${survey.userPhone || 'N/A'}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Created At:</span>
-            <span style="color: #333; font-size: 14px;">${formatDate(survey.createdAt)}</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 12px; background: #f9f9f9; border-radius: 6px;">
-            <span style="color: #666; font-size: 13px; font-weight: 500;">Updated At:</span>
-            <span style="color: #333; font-size: 14px;">${formatDate(survey.updatedAt)}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// Generate PDF for a single survey and return as blob
-async function generateSinglePDFBlob(survey: Survey): Promise<{ blob: Blob; filename: string }> {
-  // Create a temporary container
-  const container = document.createElement('div');
-  container.style.position = 'absolute';
-  container.style.left = '-9999px';
-  container.style.top = '0';
-  container.style.width = '800px';
-  container.style.backgroundColor = 'white';
+  // Constants
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const margin = 10;
+  const contentWidth = pageWidth - (margin * 2);
+  const fieldWidth = (contentWidth - 10) / 2; // 2 columns with gap
+  let y = margin; // Start from top (no header)
+  const sectionSpacing = 8;
   
-  // Generate HTML with images loaded as base64
-  container.innerHTML = await createSurveyHTML(survey);
-  document.body.appendChild(container);
-
-  try {
-    // Wait for all images to be fully loaded (increased timeout for reliability)
-    const images = container.querySelectorAll('img');
-    await Promise.all(
-      Array.from(images).map((img) => {
-        if (img.complete && img.naturalHeight !== 0) return Promise.resolve(undefined);
-        return new Promise<void>((resolve) => {
-          let resolved = false;
-          const timeout = setTimeout(() => {
-            if (!resolved) {
-              resolved = true;
-              console.warn(`Image load timeout for survey RFP: ${survey.rfpNumber}, Pole: ${survey.poleId}`);
-              resolve(undefined); // Continue even if image fails
-            }
-          }, 5000); // Increased to 5 seconds for better reliability
-          
-          img.onload = () => {
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(timeout);
-              resolve(undefined);
-            }
-          };
-          img.onerror = () => {
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(timeout);
-              console.warn(`Image load error for survey RFP: ${survey.rfpNumber}, Pole: ${survey.poleId}`);
-              resolve(undefined); // Continue even if image fails
-            }
-          };
-        });
-      })
-    );
-    
-    // Wait for rendering to complete
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Capture the content with good quality scale
-    const canvas = await html2canvas(container, {
-      useCORS: true,
-      allowTaint: false, // Using base64, so no taint
-      backgroundColor: '#ffffff',
-      scale: 1.5, // Increased for better quality while still being reasonable
-      logging: false,
-      width: container.scrollWidth,
-      height: container.scrollHeight,
-      onclone: (clonedDoc) => {
-        // Ensure images are visible in cloned document
-        const clonedContainer = clonedDoc.querySelector('div');
-        if (clonedContainer) {
-          const clonedImages = clonedContainer.querySelectorAll('img');
-          clonedImages.forEach((img) => {
-            if (img.src && !img.complete) {
-              // Force reload if not complete
-              const newImg = new Image();
-              newImg.src = img.src;
-            }
-          });
-        }
-      }
-    });
-
-    const imgData = canvas.toDataURL('image/png');
-    
-    // PDF dimensions (A4)
-    const pdfWidth = 210; // A4 width in mm
-    const pdfHeight = 297; // A4 height in mm
-    const imgWidth = canvas.width;
-    const imgHeight = canvas.height;
-    
-    // Calculate scaling
-    const ratio = pdfWidth / (imgWidth * 0.264583);
-    const scaledHeight = (imgHeight * 0.264583) * ratio;
-    
-    // Create PDF
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
-
-    let heightLeft = scaledHeight;
-    let position = 0;
-    
-    doc.addImage(imgData, 'PNG', 0, position, pdfWidth, scaledHeight, undefined, 'FAST');
-    
-    while (heightLeft > pdfHeight) {
-      position -= pdfHeight;
-      heightLeft -= pdfHeight;
-      doc.addPage();
-      doc.addImage(imgData, 'PNG', 0, position, pdfWidth, scaledHeight, undefined, 'FAST');
-    }
-    
-    // Generate filename
-    const rfpNumber = survey.rfpNumber || 'unknown';
-    const poleId = survey.poleId || 'unknown';
-    const filename = `Survey_RFP${rfpNumber}_Pole${poleId}.pdf`;
-    
-    // Generate PDF as blob instead of downloading
-    const pdfBlob = doc.output('blob');
-    
-    return { blob: pdfBlob, filename };
-  } catch (error) {
-    console.error(`Error generating PDF for survey RFP: ${survey.rfpNumber}, Pole: ${survey.poleId}:`, error);
-    throw error; // Re-throw to be handled by caller
-  } finally {
-    // Clean up
-    if (container.parentNode) {
-      document.body.removeChild(container);
+  // Load images
+  const images: string[] = [];
+  if (survey.imageUrls && survey.imageUrls.length > 0) {
+    for (const url of survey.imageUrls) {
+      const base64 = await loadImageAsBase64(url);
+      if (base64) images.push(base64);
     }
   }
+
+  // Helper to check if we need new page
+  const checkNewPage = (requiredHeight: number): boolean => {
+    if (y + requiredHeight > pageHeight - margin - 15) { // Leave space for footer
+      addPageFooter(doc, doc.getNumberOfPages(), 0); // Will update total later
+      doc.addPage();
+      y = margin;
+      return true;
+    }
+    return false;
+  };
+
+  // Section 1: General Information
+  y += addSectionTitle(doc, y, '1. GENERAL INFORMATION');
+  y += 3;
+  
+  const generalFields = [
+    { label: 'RFP Number', value: formatValue(survey.rfpNumber), x: margin },
+    { label: 'Pole ID', value: formatValue(survey.poleId), x: margin + fieldWidth + 10 },
+    { label: 'Location Name', value: formatValue(survey.locationName), x: margin },
+    { label: 'Police Station', value: formatValue(survey.policeStation), x: margin + fieldWidth + 10 },
+    { label: 'Location Categories', value: survey.locationCategories?.join(', ') || 'N/A', x: margin },
+    { label: 'Power Substation', value: formatValue(survey.powerSubstation), x: margin + fieldWidth + 10 },
+    { label: 'Nearest Landmark', value: formatValue(survey.nearestLandmark), x: margin },
+  ];
+  
+  if (survey.latitude && survey.longitude) {
+    generalFields.push({ label: 'Coordinates', value: `${survey.latitude}, ${survey.longitude}`, x: margin + fieldWidth + 10 });
+  }
+
+  for (let i = 0; i < generalFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = generalFields[i];
+    const field2 = generalFields[i + 1];
+    
+    const height1 = addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += Math.max(height1, 12) + 3;
+  }
+
+  y += sectionSpacing;
+
+  // Section 2: Infrastructure Details
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '2. INFRASTRUCTURE DETAILS');
+  y += 3;
+
+  const infraFields = [
+    { label: 'Power Source Available', value: survey.powerSourceAvailability === true ? 'Yes' : survey.powerSourceAvailability === false ? 'No' : 'N/A', x: margin },
+    { label: 'Cable Trenching (m)', value: formatValue(survey.cableTrenching), x: margin + fieldWidth + 10 },
+    { label: 'Road Type', value: formatValue(survey.roadType), x: margin },
+    { label: 'No. of Roads', value: formatValue(survey.noOfRoads), x: margin + fieldWidth + 10 },
+    { label: 'Pole Size', value: formatValue(survey.poleSize), x: margin },
+    { label: 'Cantilever Type', value: formatValue(survey.cantileverType), x: margin + fieldWidth + 10 },
+    { label: 'Existing CCTV Pole', value: survey.existingCctvPole === true ? 'Yes' : survey.existingCctvPole === false ? 'No' : 'N/A', x: margin },
+    { label: 'Distance from Existing Pole (m)', value: formatValue(survey.distanceFromExistingPole), x: margin + fieldWidth + 10 },
+    { label: 'JB', value: formatValue(survey.jb), x: margin },
+    { label: 'No. of Cameras', value: formatValue(survey.noOfCameras), x: margin + fieldWidth + 10 },
+    { label: 'No. of Poles', value: formatValue(survey.noOfPoles), x: margin },
+  ];
+
+  for (let i = 0; i < infraFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = infraFields[i];
+    const field2 = infraFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 3: Measurement Sheet
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '3. MEASUREMENT SHEET');
+  y += 3;
+
+  const measurementFields = [
+    { label: 'Power Cable (2 Core) (m)', value: formatValue(survey.powerCable), x: margin },
+    { label: 'CAT6 Cable (m)', value: formatValue(survey.cat6Cable), x: margin + fieldWidth + 10 },
+    { label: 'IR Cable (2.5sqmm 3core) (m)', value: formatValue(survey.irCable), x: margin },
+    { label: 'HDPE Power Trenching (m)', value: formatValue(survey.hdpPowerTrenching), x: margin + fieldWidth + 10 },
+    { label: 'Road Crossing Length (m)', value: formatValue(survey.roadCrossingLength), x: margin },
+  ];
+
+  for (let i = 0; i < measurementFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = measurementFields[i];
+    const field2 = measurementFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 4: Type of Cameras
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '4. TYPE OF CAMERAS');
+  y += 3;
+
+  const cameraFields = [
+    { label: 'Fixed Box Camera', value: formatValue(survey.fixedBoxCamera), x: margin },
+    { label: 'PTZ', value: formatValue(survey.ptz), x: margin + fieldWidth + 10 },
+    { label: 'ANPR Camera', value: formatValue(survey.anprCamera), x: margin },
+    { label: 'Total Cameras', value: formatValue(survey.totalCameras), x: margin + fieldWidth + 10 },
+    { label: 'PA System', value: formatValue(survey.paSystem), x: margin },
+  ];
+
+  for (let i = 0; i < cameraFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = cameraFields[i];
+    const field2 = cameraFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 5: Type of Analytics
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '5. TYPE OF ANALYTICS');
+  y += 3;
+
+  const analyticsFields = [
+    { label: 'Crowd Safety Options', value: survey.crowdSafetyOptions?.join(', ') || 'None', x: margin },
+    { label: 'Investigation Options', value: survey.investigationOptions?.join(', ') || 'None', x: margin + fieldWidth + 10 },
+    { label: 'Public Order Options', value: survey.publicOrderOptions?.join(', ') || 'None', x: margin },
+    { label: 'Traffic Options', value: survey.trafficOptions?.join(', ') || 'None', x: margin + fieldWidth + 10 },
+    { label: 'Safety Options', value: survey.safetyOptions?.join(', ') || 'None', x: margin },
+    { label: 'ANPR', value: survey.anpr === true ? 'Yes' : survey.anpr === false ? 'No' : 'N/A', x: margin + fieldWidth + 10 },
+    { label: 'FRS', value: survey.frs === true ? 'Yes' : survey.frs === false ? 'No' : 'N/A', x: margin },
+    { label: 'Remarks', value: formatValue(survey.remarks), x: margin + fieldWidth + 10 },
+  ];
+
+  for (let i = 0; i < analyticsFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = analyticsFields[i];
+    const field2 = analyticsFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 6: Parent Pole - Force new page
+  addPageFooter(doc, doc.getNumberOfPages(), 0);
+  doc.addPage();
+  y = margin;
+  
+  y += addSectionTitle(doc, y, '6. PARENT POLE FOR POWER SOURCE');
+  y += 3;
+
+  const parentPoleFields = [
+    { label: 'Parent pole ID', value: formatValue(survey.parentPoleId), x: margin },
+    { label: 'Parent pole distance', value: formatValue(survey.parentPoleDistance), x: margin + fieldWidth + 10 },
+    { label: 'Road crossing length from parent pole', value: formatValue(survey.parentPoleRoadCrossing), x: margin },
+    { label: 'Parent road type', value: formatValue(survey.parentPoleRoadType), x: margin + fieldWidth + 10 },
+  ];
+
+  for (let i = 0; i < parentPoleFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = parentPoleFields[i];
+    const field2 = parentPoleFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 7: Images
+  checkNewPage(60);
+  y += addSectionTitle(doc, y, `7. IMAGES (${images.length || 0})`);
+  y += 5;
+
+  if (images.length > 0) {
+    const imgWidth = 60;
+    const imgHeight = 45;
+    const imgGap = 10;
+    let imgX = margin;
+    
+    for (let i = 0; i < images.length; i++) {
+      if (imgX + imgWidth > pageWidth - margin) {
+        checkNewPage(60);
+        imgX = margin;
+        y += 50;
+      }
+      await addImageToPDF(doc, imgX, y, images[i], imgWidth, imgHeight);
+      imgX += imgWidth + imgGap;
+    }
+    y += imgHeight + 10;
+  } else {
+    // White placeholder
+    checkNewPage(50);
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(margin, y, contentWidth, 40, 2, 2, 'F');
+    doc.setDrawColor(224, 224, 224);
+    doc.setLineWidth(1);
+    doc.roundedRect(margin, y, contentWidth, 40, 2, 2);
+    y += 45;
+  }
+
+  y += sectionSpacing;
+
+  // Section 8: Metadata
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '8. METADATA');
+  y += 3;
+
+  const metadataFields = [
+    { label: 'Submitted By', value: formatValue(survey.userName || survey.userPhone), x: margin },
+    { label: 'User Phone', value: formatValue(survey.userPhone), x: margin + fieldWidth + 10 },
+    { label: 'Created At', value: formatDate(survey.createdAt), x: margin },
+    { label: 'Updated At', value: formatDate(survey.updatedAt), x: margin + fieldWidth + 10 },
+  ];
+
+  for (let i = 0; i < metadataFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = metadataFields[i];
+    const field2 = metadataFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  // Update total pages in all footers
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    addPageFooter(doc, i, totalPages);
+  }
+
+  // Generate filename
+  const rfpNumber = survey.rfpNumber || 'unknown';
+  const poleId = survey.poleId || 'unknown';
+  const filename = `Survey_RFP${rfpNumber}_Pole${poleId}.pdf`;
+  
+  // Generate PDF as blob
+  const pdfBlob = doc.output('blob');
+  
+  return { blob: pdfBlob, filename };
 }
 
-// Helper function to download a single PDF file
-function downloadPDF(blob: Blob, filename: string): void {
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(url);
-}
-
-// Generate PDFs for multiple surveys and download individually (WITH IMAGES)
-// Downloads each PDF as it's generated, with small delays between downloads
-// Returns number of successfully generated PDFs
+// Generate PDFs for multiple surveys and download individually
 export async function generateBulkPDFs(
   surveys: Survey[],
-  onProgress?: (current: number, total: number, batchNumber?: number, totalBatches?: number) => void
+  onProgress?: (current: number, total: number) => void
 ): Promise<{ success: number; failed: number; failedSurveys: Array<{ rfpNumber: string; poleId: string }> }> {
   if (surveys.length === 0) {
     throw new Error('No surveys to export');
   }
 
-  let totalCompleted = 0;
   let totalSuccess = 0;
   let totalFailed = 0;
   const allFailedSurveys: Array<{ rfpNumber: string; poleId: string }> = [];
 
-  // Process PDFs in smaller sub-batches for parallel processing (3 at a time to avoid too many simultaneous downloads)
-  const SUB_BATCH_SIZE = 3;
-  const subBatches: Survey[][] = [];
-  for (let i = 0; i < surveys.length; i += SUB_BATCH_SIZE) {
-    subBatches.push(surveys.slice(i, i + SUB_BATCH_SIZE));
+  const BATCH_SIZE = 5;
+  const batches: Survey[][] = [];
+  for (let i = 0; i < surveys.length; i += BATCH_SIZE) {
+    batches.push(surveys.slice(i, i + BATCH_SIZE));
   }
 
-  // Process sub-batches sequentially, but PDFs within each sub-batch in parallel
-  for (let subBatchIndex = 0; subBatchIndex < subBatches.length; subBatchIndex++) {
-    const subBatch = subBatches[subBatchIndex];
-    const subBatchPromises = subBatch.map(async (survey, indexInBatch) => {
+  let completed = 0;
+
+  for (const batch of batches) {
+    const batchPromises = batch.map(async (survey) => {
       try {
-        // Always use html2canvas method to include images
-        const result = await generateSinglePDFBlob(survey);
-        
-        // Download the PDF immediately
-        downloadPDF(result.blob, result.filename);
-        
-        // Small delay between downloads in the same sub-batch to avoid browser blocking
-        if (indexInBatch < subBatch.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-        
-        totalCompleted++;
+        const { blob, filename } = await generateSinglePDFBlob(survey);
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
         totalSuccess++;
-        if (onProgress) {
-          onProgress(totalCompleted, surveys.length);
-        }
       } catch (error) {
         console.error(`Error generating PDF for survey RFP: ${survey.rfpNumber}, Pole: ${survey.poleId}:`, error);
-        allFailedSurveys.push({ 
-          rfpNumber: String(survey.rfpNumber || 'unknown'), 
-          poleId: String(survey.poleId || 'unknown') 
-        });
-        totalCompleted++;
         totalFailed++;
+        allFailedSurveys.push({ rfpNumber: survey.rfpNumber || 'N/A', poleId: survey.poleId || 'N/A' });
+      } finally {
+        completed++;
         if (onProgress) {
-          onProgress(totalCompleted, surveys.length);
+          onProgress(completed, surveys.length);
         }
       }
     });
-
-    // Wait for current sub-batch to complete before starting next
-    await Promise.all(subBatchPromises);
-    
-    // Small delay between sub-batches to ensure browser processes downloads
-    if (subBatchIndex < subBatches.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
+    await Promise.all(batchPromises);
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
-  // Final progress update
-  if (onProgress) {
-    onProgress(surveys.length, surveys.length);
-  }
-
-  return {
-    success: totalSuccess,
-    failed: totalFailed,
-    failedSurveys: allFailedSurveys
-  };
+  return { success: totalSuccess, failed: totalFailed, failedSurveys: allFailedSurveys };
 }
-

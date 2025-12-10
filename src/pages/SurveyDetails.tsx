@@ -161,7 +161,11 @@ export default function SurveyDetails() {
                   button.textContent = '⏳ Generating PDF...';
                   button.disabled = true;
                   
-                  await generatePDF();
+                  if (survey) {
+                    await generatePDF(survey);
+                  } else {
+                    throw new Error('Survey data not available');
+                  }
                   
                   // Restore button
                   button.textContent = originalText;
@@ -303,18 +307,26 @@ export default function SurveyDetails() {
           </section>
 
           {/* Images */}
-          {survey.imageUrls && survey.imageUrls.length > 0 && (
-            <section className="details-section">
-              <h2>Images ({survey.imageUrls.length})</h2>
-              <div className="images-grid">
-                {survey.imageUrls.map((url, index) => (
+          <section className="details-section">
+            <h2>Images ({survey.imageUrls && survey.imageUrls.length > 0 ? survey.imageUrls.length : 0})</h2>
+            <div className="images-grid">
+              {survey.imageUrls && survey.imageUrls.length > 0 ? (
+                survey.imageUrls.map((url, index) => (
                   <div key={index} className="image-item">
                     <img src={url} alt={`Survey image ${index + 1}`} />
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
+                ))
+              ) : (
+                <div className="image-item">
+                  <img 
+                    src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" 
+                    alt="No image" 
+                    style={{ width: '100%', height: '200px', objectFit: 'cover', background: 'white' }} 
+                  />
+                </div>
+              )}
+            </div>
+          </section>
 
           {/* Metadata */}
           <section className="details-section">

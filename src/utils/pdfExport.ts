@@ -1,77 +1,394 @@
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import type { Survey } from '../firebase/surveys';
 
-export async function generatePDF() {
-  // Find the main content element to capture
-  const contentElement = document.querySelector('.details-content') as HTMLElement;
-  
-  if (!contentElement) {
-    throw new Error('Could not find content element to capture');
+// Helper function to load image as base64
+async function loadImageAsBase64(url: string): Promise<string> {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('Error loading image:', error);
+    return '';
   }
+}
 
-  // Wait for all images to be fully loaded
-  const images = contentElement.querySelectorAll('img');
-  await Promise.all(
-    Array.from(images).map((img) => {
-      if (img.complete) return Promise.resolve();
-      return new Promise((resolve) => {
-        img.onload = resolve;
-        img.onerror = resolve; // Continue even if image fails
-        setTimeout(resolve, 5000); // Timeout after 5 seconds
-      });
-    })
-  );
-  
-  // Additional wait to ensure rendering is complete
-  await new Promise(resolve => setTimeout(resolve, 500));
-
-  // Capture the entire content area as canvas
-  const canvas = await html2canvas(contentElement, {
-    useCORS: true,
-    allowTaint: true,
-    backgroundColor: '#ffffff',
-    scale: 2, // Higher quality for better PDF
-    logging: false,
-    width: contentElement.scrollWidth,
-    height: contentElement.scrollHeight,
-    windowWidth: contentElement.scrollWidth,
-    windowHeight: contentElement.scrollHeight
+// Format date helper
+function formatDate(timestamp: any): string {
+  if (!timestamp) return 'N/A';
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  return date.toLocaleDateString('en-IN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
   });
+}
 
-  const imgData = canvas.toDataURL('image/png');
+// Format value helper
+function formatValue(value: any): string {
+  if (value === undefined || value === null || value === '') {
+    return 'N/A';
+  }
+  return String(value);
+}
+
+// Add footer to PDF page
+function addPageFooter(doc: jsPDF, pageNum: number, totalPages: number) {
+  doc.setTextColor(128, 128, 128);
+  doc.setFontSize(8);
+  doc.text(`Page ${pageNum}/${totalPages}`, 105, 290, { align: 'center' });
+  doc.text(`Generated on ${new Date().toLocaleDateString('en-IN')}`, 105, 295, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+}
+
+// Add a field to PDF
+function addField(doc: jsPDF, x: number, y: number, label: string, value: string, width: number = 95): number {
+  const padding = 3;
   
-  // PDF dimensions (A4)
-  const pdfWidth = 210; // A4 width in mm
-  const pdfHeight = 297; // A4 height in mm
-  const imgWidth = canvas.width;
-  const imgHeight = canvas.height;
+  // Field background
+  doc.setFillColor(248, 249, 250); // #f8f9fa
+  doc.roundedRect(x, y, width, 12, 2, 2, 'F');
   
-  // Calculate scaling to fit width
-  const ratio = pdfWidth / (imgWidth * 0.264583); // Convert px to mm (1px = 0.264583mm at 96dpi)
-  const scaledHeight = (imgHeight * 0.264583) * ratio;
+  // Left border accent - light gray
+  doc.setFillColor(200, 200, 200); // Light gray
+  doc.rect(x, y, 2, 12, 'F');
   
-  // Create PDF
+  // Label
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(102, 102, 102); // #666
+  doc.text(label.toUpperCase(), x + 5, y + 5);
+  
+  // Value
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(51, 51, 51); // #333
+  const valueY = y + 9;
+  const maxWidth = width - 10;
+  const lines = doc.splitTextToSize(value, maxWidth);
+  doc.text(lines[0], x + 5, valueY);
+  
+  return 12 + padding; // Return height used
+}
+
+// Add section title
+function addSectionTitle(doc: jsPDF, y: number, title: string): number {
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(51, 51, 51); // Dark gray
+  doc.text(title, 10, y);
+  
+  // Underline
+  doc.setDrawColor(200, 200, 200); // Light gray
+  doc.setLineWidth(0.5);
+  doc.line(10, y + 1, 200, y + 1);
+  
+  return 8; // Return height used
+}
+
+// Add image to PDF
+async function addImageToPDF(doc: jsPDF, x: number, y: number, imageData: string, width: number, height: number): Promise<void> {
+  try {
+    doc.addImage(imageData, 'PNG', x, y, width, height);
+  } catch (error) {
+    console.error('Error adding image to PDF:', error);
+    // Draw white rectangle as placeholder
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(x, y, width, height, 2, 2, 'F');
+    doc.setDrawColor(224, 224, 224);
+    doc.setLineWidth(1);
+    doc.roundedRect(x, y, width, height, 2, 2);
+  }
+}
+
+// Generate PDF from survey data using jsPDF native API
+export async function generatePDF(survey: Survey): Promise<void> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
-    format: 'a4'
+    format: 'a4',
+    compress: true
   });
 
-  // Add image - jsPDF will handle page breaks automatically
-  let heightLeft = scaledHeight;
-  let position = 0;
+  // Constants
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const margin = 10;
+  const contentWidth = pageWidth - (margin * 2);
+  const fieldWidth = (contentWidth - 10) / 2; // 2 columns with gap
+  let y = margin; // Start from top (no header)
+  const sectionSpacing = 8;
   
-  // Add first page
-  doc.addImage(imgData, 'PNG', 0, position, pdfWidth, scaledHeight, undefined, 'FAST');
-  
-  // Add additional pages if needed
-  while (heightLeft > pdfHeight) {
-    position -= pdfHeight;
-    heightLeft -= pdfHeight;
-    doc.addPage();
-    doc.addImage(imgData, 'PNG', 0, position, pdfWidth, scaledHeight, undefined, 'FAST');
+  // Load images
+  const images: string[] = [];
+  if (survey.imageUrls && survey.imageUrls.length > 0) {
+    for (const url of survey.imageUrls) {
+      const base64 = await loadImageAsBase64(url);
+      if (base64) images.push(base64);
+    }
   }
+
+  // Helper to check if we need new page
+  const checkNewPage = (requiredHeight: number): boolean => {
+    if (y + requiredHeight > pageHeight - margin - 15) { // Leave space for footer
+      addPageFooter(doc, doc.getNumberOfPages(), 0); // Will update total later
+      doc.addPage();
+      y = margin;
+      return true;
+    }
+    return false;
+  };
+
+  // Section 1: General Information
+  y += addSectionTitle(doc, y, '1. GENERAL INFORMATION');
+  y += 3;
   
+  const generalFields = [
+    { label: 'RFP Number', value: formatValue(survey.rfpNumber), x: margin },
+    { label: 'Pole ID', value: formatValue(survey.poleId), x: margin + fieldWidth + 10 },
+    { label: 'Location Name', value: formatValue(survey.locationName), x: margin },
+    { label: 'Police Station', value: formatValue(survey.policeStation), x: margin + fieldWidth + 10 },
+    { label: 'Location Categories', value: survey.locationCategories?.join(', ') || 'N/A', x: margin },
+    { label: 'Power Substation', value: formatValue(survey.powerSubstation), x: margin + fieldWidth + 10 },
+    { label: 'Nearest Landmark', value: formatValue(survey.nearestLandmark), x: margin },
+  ];
+  
+  if (survey.latitude && survey.longitude) {
+    generalFields.push({ label: 'Coordinates', value: `${survey.latitude}, ${survey.longitude}`, x: margin + fieldWidth + 10 });
+  }
+
+  for (let i = 0; i < generalFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = generalFields[i];
+    const field2 = generalFields[i + 1];
+    
+    const height1 = addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += Math.max(height1, 12) + 3;
+  }
+
+  y += sectionSpacing;
+
+  // Section 2: Infrastructure Details
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '2. INFRASTRUCTURE DETAILS');
+  y += 3;
+
+  const infraFields = [
+    { label: 'Power Source Available', value: survey.powerSourceAvailability === true ? 'Yes' : survey.powerSourceAvailability === false ? 'No' : 'N/A', x: margin },
+    { label: 'Cable Trenching (m)', value: formatValue(survey.cableTrenching), x: margin + fieldWidth + 10 },
+    { label: 'Road Type', value: formatValue(survey.roadType), x: margin },
+    { label: 'No. of Roads', value: formatValue(survey.noOfRoads), x: margin + fieldWidth + 10 },
+    { label: 'Pole Size', value: formatValue(survey.poleSize), x: margin },
+    { label: 'Cantilever Type', value: formatValue(survey.cantileverType), x: margin + fieldWidth + 10 },
+    { label: 'Existing CCTV Pole', value: survey.existingCctvPole === true ? 'Yes' : survey.existingCctvPole === false ? 'No' : 'N/A', x: margin },
+    { label: 'Distance from Existing Pole (m)', value: formatValue(survey.distanceFromExistingPole), x: margin + fieldWidth + 10 },
+    { label: 'JB', value: formatValue(survey.jb), x: margin },
+    { label: 'No. of Cameras', value: formatValue(survey.noOfCameras), x: margin + fieldWidth + 10 },
+    { label: 'No. of Poles', value: formatValue(survey.noOfPoles), x: margin },
+  ];
+
+  for (let i = 0; i < infraFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = infraFields[i];
+    const field2 = infraFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 3: Measurement Sheet
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '3. MEASUREMENT SHEET');
+  y += 3;
+
+  const measurementFields = [
+    { label: 'Power Cable (2 Core) (m)', value: formatValue(survey.powerCable), x: margin },
+    { label: 'CAT6 Cable (m)', value: formatValue(survey.cat6Cable), x: margin + fieldWidth + 10 },
+    { label: 'IR Cable (2.5sqmm 3core) (m)', value: formatValue(survey.irCable), x: margin },
+    { label: 'HDPE Power Trenching (m)', value: formatValue(survey.hdpPowerTrenching), x: margin + fieldWidth + 10 },
+    { label: 'Road Crossing Length (m)', value: formatValue(survey.roadCrossingLength), x: margin },
+  ];
+
+  for (let i = 0; i < measurementFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = measurementFields[i];
+    const field2 = measurementFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 4: Type of Cameras
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '4. TYPE OF CAMERAS');
+  y += 3;
+
+  const cameraFields = [
+    { label: 'Fixed Box Camera', value: formatValue(survey.fixedBoxCamera), x: margin },
+    { label: 'PTZ', value: formatValue(survey.ptz), x: margin + fieldWidth + 10 },
+    { label: 'ANPR Camera', value: formatValue(survey.anprCamera), x: margin },
+    { label: 'Total Cameras', value: formatValue(survey.totalCameras), x: margin + fieldWidth + 10 },
+    { label: 'PA System', value: formatValue(survey.paSystem), x: margin },
+  ];
+
+  for (let i = 0; i < cameraFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = cameraFields[i];
+    const field2 = cameraFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 5: Type of Analytics
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '5. TYPE OF ANALYTICS');
+  y += 3;
+
+  const analyticsFields = [
+    { label: 'Crowd Safety Options', value: survey.crowdSafetyOptions?.join(', ') || 'None', x: margin },
+    { label: 'Investigation Options', value: survey.investigationOptions?.join(', ') || 'None', x: margin + fieldWidth + 10 },
+    { label: 'Public Order Options', value: survey.publicOrderOptions?.join(', ') || 'None', x: margin },
+    { label: 'Traffic Options', value: survey.trafficOptions?.join(', ') || 'None', x: margin + fieldWidth + 10 },
+    { label: 'Safety Options', value: survey.safetyOptions?.join(', ') || 'None', x: margin },
+    { label: 'ANPR', value: survey.anpr === true ? 'Yes' : survey.anpr === false ? 'No' : 'N/A', x: margin + fieldWidth + 10 },
+    { label: 'FRS', value: survey.frs === true ? 'Yes' : survey.frs === false ? 'No' : 'N/A', x: margin },
+    { label: 'Remarks', value: formatValue(survey.remarks), x: margin + fieldWidth + 10 },
+  ];
+
+  for (let i = 0; i < analyticsFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = analyticsFields[i];
+    const field2 = analyticsFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 6: Parent Pole - Force new page
+  addPageFooter(doc, doc.getNumberOfPages(), 0);
+  doc.addPage();
+  y = margin;
+  
+  y += addSectionTitle(doc, y, '6. PARENT POLE FOR POWER SOURCE');
+  y += 3;
+
+  const parentPoleFields = [
+    { label: 'Parent pole ID', value: formatValue(survey.parentPoleId), x: margin },
+    { label: 'Parent pole distance', value: formatValue(survey.parentPoleDistance), x: margin + fieldWidth + 10 },
+    { label: 'Road crossing length from parent pole', value: formatValue(survey.parentPoleRoadCrossing), x: margin },
+    { label: 'Parent road type', value: formatValue(survey.parentPoleRoadType), x: margin + fieldWidth + 10 },
+  ];
+
+  for (let i = 0; i < parentPoleFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = parentPoleFields[i];
+    const field2 = parentPoleFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  y += sectionSpacing;
+
+  // Section 7: Images
+  checkNewPage(60);
+  y += addSectionTitle(doc, y, `7. IMAGES (${images.length || 0})`);
+  y += 5;
+
+  if (images.length > 0) {
+    const imgWidth = 60;
+    const imgHeight = 45;
+    const imgGap = 10;
+    let imgX = margin;
+    
+    for (let i = 0; i < images.length; i++) {
+      if (imgX + imgWidth > pageWidth - margin) {
+        checkNewPage(60);
+        imgX = margin;
+        y += 50;
+      }
+      await addImageToPDF(doc, imgX, y, images[i], imgWidth, imgHeight);
+      imgX += imgWidth + imgGap;
+    }
+    y += imgHeight + 10;
+  } else {
+    // White placeholder
+    checkNewPage(50);
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(margin, y, contentWidth, 40, 2, 2, 'F');
+    doc.setDrawColor(224, 224, 224);
+    doc.setLineWidth(1);
+    doc.roundedRect(margin, y, contentWidth, 40, 2, 2);
+    y += 45;
+  }
+
+  y += sectionSpacing;
+
+  // Section 8: Metadata
+  checkNewPage(20);
+  y += addSectionTitle(doc, y, '8. METADATA');
+  y += 3;
+
+  const metadataFields = [
+    { label: 'Submitted By', value: formatValue(survey.userName || survey.userPhone), x: margin },
+    { label: 'User Phone', value: formatValue(survey.userPhone), x: margin + fieldWidth + 10 },
+    { label: 'Created At', value: formatDate(survey.createdAt), x: margin },
+    { label: 'Updated At', value: formatDate(survey.updatedAt), x: margin + fieldWidth + 10 },
+  ];
+
+  for (let i = 0; i < metadataFields.length; i += 2) {
+    checkNewPage(15);
+    const field1 = metadataFields[i];
+    const field2 = metadataFields[i + 1];
+    
+    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    if (field2) {
+      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+    }
+    y += 15;
+  }
+
+  // Update total pages in all footers
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    addPageFooter(doc, i, totalPages);
+  }
+
   // Save the PDF
   doc.save(`survey-report-${Date.now()}.pdf`);
 }
