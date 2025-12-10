@@ -45,6 +45,26 @@ service cloud.firestore {
         // Allow delete - users can delete their own surveys
         allow delete: if resource.data.userId == userId;
       }
+      
+      // Surveys2 subcollection - same rules as surveys
+      match /surveys2/{surveyId} {
+        // Allow create - validate userId matches
+        allow create: if request.resource.data.userId == userId;
+        
+        // Allow read - users can read their own surveys
+        // For collection group queries, we need to allow reads from any path
+        // Admin check is done in app code before calling getAllSurveys()
+        // Collection group queries access documents via collectionGroup('surveys2')
+        // so we need to allow reads from any surveys2 collection
+        allow read: if true; // Allow reads (admin check in app code)
+        
+        // Allow update - users can update their own surveys
+        allow update: if resource.data.userId == userId
+                      && request.resource.data.userId == userId;
+        
+        // Allow delete - users can delete their own surveys
+        allow delete: if resource.data.userId == userId;
+      }
     }
     
     // Allow collection group queries for surveys
@@ -56,11 +76,18 @@ service cloud.firestore {
       allow read: if true;
     }
     
+    // Allow collection group queries for surveys2
+    // This is needed for admin to query all surveys2 across all users
+    // Collection group queries match any path ending with /surveys2/{surveyId}
+    match /{path=**}/surveys2/{surveyId} {
+      // Allow read for collection group queries
+      // Admin check is done in app code
+      allow read: if true;
+    }
+    
     // Deny all other collections
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-
-

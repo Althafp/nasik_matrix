@@ -66,10 +66,13 @@ export type Survey = {
   updatedAt?: any;
 };
 
+// Collection type
+export type CollectionType = 'surveys' | 'surveys2';
+
 // Get all surveys for a specific user
-export async function getUserSurveys(userId: string): Promise<Survey[]> {
+export async function getUserSurveys(userId: string, collectionType: CollectionType = 'surveys'): Promise<Survey[]> {
   try {
-    const surveysRef = collection(db, 'users', userId, 'surveys');
+    const surveysRef = collection(db, 'users', userId, collectionType);
     const q = query(surveysRef, orderBy('createdAt', 'desc'));
     const querySnapshot = await getDocs(q);
 
@@ -84,26 +87,57 @@ export async function getUserSurveys(userId: string): Promise<Survey[]> {
 }
 
 // Get all surveys (admin only - collection group query)
-export async function getAllSurveys(): Promise<Survey[]> {
+export async function getAllSurveys(collectionType: CollectionType = 'surveys'): Promise<Survey[]> {
   try {
-    const surveysRef = collectionGroup(db, 'surveys');
+    const surveysRef = collectionGroup(db, collectionType);
     const q = query(surveysRef, orderBy('createdAt', 'desc'));
     const querySnapshot = await getDocs(q);
 
-    return querySnapshot.docs.map(doc => ({
+    const surveys = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     } as Survey));
-  } catch (error) {
-    console.error('Error fetching all surveys:', error);
+    
+    console.log(`Fetched ${surveys.length} surveys from ${collectionType} collection group`);
+    return surveys;
+  } catch (error: any) {
+    console.error(`Error fetching all surveys from ${collectionType} with orderBy:`, error);
+    // If it's an index error, try without orderBy as fallback
+    if (error?.code === 'failed-precondition' || error?.message?.includes('index')) {
+      console.warn(`Index missing for ${collectionType}, trying query without orderBy...`);
+      try {
+        const surveysRef = collectionGroup(db, collectionType);
+        const q = query(surveysRef);
+        const querySnapshot = await getDocs(q);
+        
+        const surveys = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Survey));
+        
+        // Sort manually by createdAt
+        surveys.sort((a, b) => {
+          const aTime = a.createdAt?.toDate?.()?.getTime() || 0;
+          const bTime = b.createdAt?.toDate?.()?.getTime() || 0;
+          return bTime - aTime; // Descending
+        });
+        
+        console.log(`Fetched ${surveys.length} surveys from ${collectionType} collection group (without index)`);
+        console.warn(`Please create a Firestore index for '${collectionType}' collection group with 'createdAt' field for better performance.`);
+        return surveys;
+      } catch (fallbackError: any) {
+        console.error(`Error fetching all surveys from ${collectionType} (fallback):`, fallbackError);
+        return [];
+      }
+    }
     return [];
   }
 }
 
 // Get a single survey by ID
-export async function getSurveyById(userId: string, surveyId: string): Promise<Survey | null> {
+export async function getSurveyById(userId: string, surveyId: string, collectionType: CollectionType = 'surveys'): Promise<Survey | null> {
   try {
-    const surveyRef = doc(db, 'users', userId, 'surveys', surveyId);
+    const surveyRef = doc(db, 'users', userId, collectionType, surveyId);
     const surveySnap = await getDoc(surveyRef);
 
     if (!surveySnap.exists()) {
@@ -132,9 +166,9 @@ function removeUndefined(obj: any): any {
 }
 
 // Create a new survey
-export async function createSurvey(userId: string, surveyData: Omit<Survey, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+export async function createSurvey(userId: string, surveyData: Omit<Survey, 'id' | 'createdAt' | 'updatedAt'>, collectionType: CollectionType = 'surveys'): Promise<string> {
   try {
-    const surveysRef = collection(db, 'users', userId, 'surveys');
+    const surveysRef = collection(db, 'users', userId, collectionType);
     // Remove undefined values before saving to Firestore
     const cleanedData = removeUndefined({
       ...surveyData,
@@ -154,10 +188,11 @@ export async function createSurvey(userId: string, surveyData: Omit<Survey, 'id'
 export async function updateSurvey(
   userId: string,
   surveyId: string,
-  updates: Partial<Survey>
+  updates: Partial<Survey>,
+  collectionType: CollectionType = 'surveys'
 ): Promise<void> {
   try {
-    const surveyRef = doc(db, 'users', userId, 'surveys', surveyId);
+    const surveyRef = doc(db, 'users', userId, collectionType, surveyId);
     // Remove undefined values before updating Firestore
     const cleanedUpdates = removeUndefined({
       ...updates,
@@ -171,9 +206,9 @@ export async function updateSurvey(
 }
 
 // Delete a survey
-export async function deleteSurvey(userId: string, surveyId: string): Promise<void> {
+export async function deleteSurvey(userId: string, surveyId: string, collectionType: CollectionType = 'surveys'): Promise<void> {
   try {
-    const surveyRef = doc(db, 'users', userId, 'surveys', surveyId);
+    const surveyRef = doc(db, 'users', userId, collectionType, surveyId);
     const surveySnap = await getDoc(surveyRef);
     
     if (surveySnap.exists()) {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import type { Survey } from '../firebase/surveys';
+import type { Survey, CollectionType } from '../firebase/surveys';
 import { createSurvey } from '../firebase/surveys';
 import { storage } from '../firebase/config';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -10,6 +10,8 @@ import './CreateSurvey.css';
 export default function CreateSurvey() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const collectionType: CollectionType = (location.state as any)?.collectionType || 'surveys';
   const [formData, setFormData] = useState<Partial<Survey>>({
     rfpNumber: '',
     poleId: '',
@@ -144,8 +146,8 @@ export default function CreateSurvey() {
         imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
       } as Omit<Survey, 'id' | 'createdAt' | 'updatedAt'>;
 
-      const surveyId = await createSurvey(user.id, surveyData);
-      navigate(`/survey/${user.id}/${surveyId}`);
+      const surveyId = await createSurvey(user.id, surveyData, collectionType);
+      navigate(`/survey/${user.id}/${surveyId}`, { state: { collectionType } });
     } catch (err: any) {
       setError(err.message || 'Failed to create survey');
     } finally {

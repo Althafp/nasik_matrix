@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import type { Survey } from '../firebase/surveys';
+import type { Survey, CollectionType } from '../firebase/surveys';
 import { getUserSurveys, getAllSurveys } from '../firebase/surveys';
 import { exportSurveysToExcel } from '../utils/excelExport';
-import { generateBulkPDFs } from '../utils/bulkPdfExport';
+import { generateBulkPDFs, generateClientBulkPDFs } from '../utils/bulkPdfExport';
 import './Dashboard.css';
 
 type Section = 'all' | 'my';
@@ -21,7 +21,9 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<ViewMode>('normal');
   const [exporting, setExporting] = useState(false);
   const [exportingPDFs, setExportingPDFs] = useState(false);
+  const [exportingClientPDFs, setExportingClientPDFs] = useState(false);
   const [pdfProgress, setPdfProgress] = useState({ current: 0, total: 0 });
+  const [clientPdfProgress, setClientPdfProgress] = useState({ current: 0, total: 0 });
   const [searchRfp, setSearchRfp] = useState('');
   const [searchPoliceStation, setSearchPoliceStation] = useState('');
   const [showRangeModal, setShowRangeModal] = useState(false);
@@ -29,6 +31,7 @@ export default function Dashboard() {
   const [rangeEnd, setRangeEnd] = useState<number>(40);
   const [rangeStartInput, setRangeStartInput] = useState<string>('1');
   const [rangeEndInput, setRangeEndInput] = useState<string>('40');
+  const [collectionType, setCollectionType] = useState<CollectionType>('surveys');
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -39,7 +42,7 @@ export default function Dashboard() {
     if (user) {
       loadSurveys();
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, navigate, collectionType]);
 
   const loadSurveys = async () => {
     if (!user) return;
@@ -50,20 +53,34 @@ export default function Dashboard() {
     try {
       // Always load all surveys for admins, and user surveys for regular users
       if (isAdmin) {
-        const all = await getAllSurveys();
+        const all = await getAllSurveys(collectionType);
+        console.log(`[Dashboard] Loaded ${all.length} surveys from ${collectionType} (all)`);
         setAllSurveys(all);
         // Also load user's own surveys
-        const my = await getUserSurveys(user.id);
+        const my = await getUserSurveys(user.id, collectionType);
+        console.log(`[Dashboard] Loaded ${my.length} surveys from ${collectionType} (my)`);
         setMySurveys(my);
       } else {
-        const my = await getUserSurveys(user.id);
+        const my = await getUserSurveys(user.id, collectionType);
+        console.log(`[Dashboard] Loaded ${my.length} surveys from ${collectionType} (my)`);
         setMySurveys(my);
         // Regular users can also see all surveys
-        const all = await getAllSurveys();
+        const all = await getAllSurveys(collectionType);
+        console.log(`[Dashboard] Loaded ${all.length} surveys from ${collectionType} (all)`);
         setAllSurveys(all);
+        
+        // If "My Surveys" has data but "All Surveys" is empty, it might be an index issue
+        if (my.length > 0 && all.length === 0 && collectionType === 'surveys2') {
+          setError('Collection group query may require a Firestore index. Please check the browser console for details.');
+        }
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load surveys');
+      console.error('[Dashboard] Error loading surveys:', err);
+      if (err?.code === 'failed-precondition' || err?.message?.includes('index')) {
+        setError(`Firestore index required for '${collectionType}' collection group query. Please create an index in Firebase Console > Firestore > Indexes.`);
+      } else {
+        setError(err.message || 'Failed to load surveys');
+      }
     } finally {
       setLoading(false);
     }
@@ -117,6 +134,21 @@ export default function Dashboard() {
     setShowRangeModal(true);
   };
 
+  const handleClientBulkDownloadPDFs = () => {
+    if (currentSurveys.length === 0) {
+      alert('No surveys to export');
+      return;
+    }
+    // Set empty defaults so user can type custom range
+    setRangeStart(1);
+    setRangeEnd(1);
+    setRangeStartInput('');
+    setRangeEndInput('');
+    setShowRangeModal(true);
+    // Set a flag to indicate this is for client PDFs
+    (window as any).__isClientPDF = true;
+  };
+
   const handleRangeDownload = async () => {
     // Parse and validate the input values
     const startVal = parseInt(rangeStartInput) || 0;
@@ -159,14 +191,27 @@ export default function Dashboard() {
     }
 
     setShowRangeModal(false);
-    setExportingPDFs(true);
-    setPdfProgress({ current: 0, total: selectedSurveys.length });
+    
+    const isClientPDF = (window as any).__isClientPDF === true;
+    (window as any).__isClientPDF = false; // Reset flag
+    
+    if (isClientPDF) {
+      setExportingClientPDFs(true);
+      setClientPdfProgress({ current: 0, total: selectedSurveys.length });
+    } else {
+      setExportingPDFs(true);
+      setPdfProgress({ current: 0, total: selectedSurveys.length });
+    }
     
     try {
       // Download PDFs individually (no ZIP)
-      const result = await generateBulkPDFs(selectedSurveys, (current, total) => {
-        setPdfProgress({ current, total });
-      });
+      const result = isClientPDF 
+        ? await generateClientBulkPDFs(selectedSurveys, (current, total) => {
+            setClientPdfProgress({ current, total });
+          })
+        : await generateBulkPDFs(selectedSurveys, (current, total) => {
+            setPdfProgress({ current, total });
+          });
       
       if (result.failed > 0) {
         alert(
@@ -175,14 +220,17 @@ export default function Dashboard() {
           `Check console for details.`
         );
       } else {
-        alert(`✅ Successfully generated and downloaded ${result.success} PDF(s) for range ${startVal}-${endVal}!`);
+        const pdfType = isClientPDF ? 'Client PDF(s)' : 'PDF(s)';
+        alert(`✅ Successfully generated and downloaded ${result.success} ${pdfType} for range ${startVal}-${endVal}!`);
       }
     } catch (error: any) {
       console.error('Bulk PDF export error:', error);
       alert('Failed to generate PDFs: ' + (error.message || 'Unknown error'));
     } finally {
       setExportingPDFs(false);
+      setExportingClientPDFs(false);
       setPdfProgress({ current: 0, total: 0 });
+      setClientPdfProgress({ current: 0, total: 0 });
     }
   };
 
@@ -217,7 +265,7 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="header-buttons">
-            <button onClick={() => navigate('/create-survey')} className="create-survey-button">
+            <button onClick={() => navigate('/create-survey', { state: { collectionType } })} className="create-survey-button">
               ➕ Create Survey
             </button>
             <button onClick={handleSignOut} className="sign-out-button">
@@ -229,6 +277,25 @@ export default function Dashboard() {
 
       <main className="dashboard-main">
         <div className="dashboard-content">
+          {/* Collection Type Navigation */}
+          <div className="collection-tabs" style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <label style={{ fontWeight: 'bold', marginRight: '10px' }}>Collection:</label>
+            <button
+              className={`section-tab ${collectionType === 'surveys' ? 'active' : ''}`}
+              onClick={() => setCollectionType('surveys')}
+              style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid #ddd', cursor: 'pointer', background: collectionType === 'surveys' ? '#667eea' : '#fff', color: collectionType === 'surveys' ? '#fff' : '#333' }}
+            >
+              Surveys
+            </button>
+            <button
+              className={`section-tab ${collectionType === 'surveys2' ? 'active' : ''}`}
+              onClick={() => setCollectionType('surveys2')}
+              style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid #ddd', cursor: 'pointer', background: collectionType === 'surveys2' ? '#667eea' : '#fff', color: collectionType === 'surveys2' ? '#fff' : '#333' }}
+            >
+              Surveys2
+            </button>
+          </div>
+
           {/* Section Navigation */}
           <div className="section-tabs">
             <button
@@ -316,12 +383,22 @@ export default function Dashboard() {
               <button
                 onClick={handleBulkDownloadPDFs}
                 className="export-button"
-                disabled={exporting || exportingPDFs || currentSurveys.length === 0}
+                disabled={exporting || exportingPDFs || exportingClientPDFs || currentSurveys.length === 0}
                 title="Download PDFs by Range"
               >
                 {exportingPDFs 
                   ? `⏳ Downloading PDFs (${pdfProgress.current}/${pdfProgress.total})...` 
                   : '📥 Download PDFs (Range)'}
+              </button>
+              <button
+                onClick={handleClientBulkDownloadPDFs}
+                className="export-button"
+                disabled={exporting || exportingPDFs || exportingClientPDFs || currentSurveys.length === 0}
+                title="Download Client PDFs by Range (Fewer Fields)"
+              >
+                {exportingClientPDFs 
+                  ? `⏳ Downloading Client PDFs (${clientPdfProgress.current}/${clientPdfProgress.total})...` 
+                  : '📄 Client Download PDFs (Range)'}
               </button>
               <button onClick={loadSurveys} className="refresh-button">
                 Refresh
@@ -384,7 +461,7 @@ export default function Dashboard() {
                       </span>
                     )}
                     <button
-                      onClick={() => navigate(`/survey/${survey.userId}/${survey.id}`)}
+                      onClick={() => navigate(`/survey/${survey.userId}/${survey.id}`, { state: { collectionType } })}
                       className="view-details-button"
                     >
                       View Details
@@ -565,7 +642,7 @@ export default function Dashboard() {
                       <td>{formatDate(survey.createdAt)}</td>
                       <td>
                         <button
-                          onClick={() => navigate(`/survey/${survey.userId}/${survey.id}`)}
+                          onClick={() => navigate(`/survey/${survey.userId}/${survey.id}`, { state: { collectionType } })}
                           className="table-view-button"
                         >
                           View
@@ -585,8 +662,11 @@ export default function Dashboard() {
         <div className="modal-overlay" onClick={() => setShowRangeModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Select Range for PDF Download</h2>
-              <button className="modal-close" onClick={() => setShowRangeModal(false)}>×</button>
+              <h2>{(window as any).__isClientPDF ? 'Select Range for Client PDF Download' : 'Select Range for PDF Download'}</h2>
+              <button className="modal-close" onClick={() => {
+                setShowRangeModal(false);
+                (window as any).__isClientPDF = false; // Reset flag on close
+              }}>×</button>
             </div>
             <div className="modal-body">
               <p style={{ marginBottom: '20px', color: '#666' }}>
@@ -717,9 +797,9 @@ export default function Dashboard() {
               <button className="modal-button cancel" onClick={() => setShowRangeModal(false)}>
                 Cancel
               </button>
-              <button className="modal-button primary" onClick={handleRangeDownload}>
-                Download PDFs
-              </button>
+            <button className="modal-button primary" onClick={handleRangeDownload}>
+              {(window as any).__isClientPDF ? 'Download Client PDFs' : 'Download PDFs'}
+            </button>
             </div>
           </div>
         </div>

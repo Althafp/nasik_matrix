@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import type { Survey } from '../firebase/surveys';
+import type { Survey, CollectionType } from '../firebase/surveys';
 import { getSurveyById, updateSurvey, deleteSurvey } from '../firebase/surveys';
 import { generatePDF } from '../utils/pdfExport';
 import EditSurveyModal from '../components/EditSurveyModal';
@@ -10,12 +10,14 @@ import './SurveyDetails.css';
 export default function SurveyDetails() {
   const { userId, surveyId } = useParams<{ userId: string; surveyId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, loading: authLoading, isAdmin } = useAuth();
   const [survey, setSurvey] = useState<Survey | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const collectionType: CollectionType = (location.state as any)?.collectionType || 'surveys';
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -26,7 +28,7 @@ export default function SurveyDetails() {
     if (userId && surveyId) {
       loadSurvey();
     }
-  }, [userId, surveyId, user, authLoading, navigate]);
+  }, [userId, surveyId, user, authLoading, navigate, collectionType]);
 
   const loadSurvey = async () => {
     if (!userId || !surveyId) return;
@@ -35,7 +37,7 @@ export default function SurveyDetails() {
     setError('');
 
     try {
-      const surveyData = await getSurveyById(userId, surveyId);
+      const surveyData = await getSurveyById(userId, surveyId, collectionType);
       if (surveyData) {
         setSurvey(surveyData);
       } else {
@@ -74,7 +76,7 @@ export default function SurveyDetails() {
     if (!userId || !surveyId) return;
 
     try {
-      await updateSurvey(userId, surveyId, updatedSurvey);
+      await updateSurvey(userId, surveyId, updatedSurvey, collectionType);
       // Reload the survey to show updated data
       await loadSurvey();
       setIsEditModalOpen(false);
@@ -94,7 +96,7 @@ export default function SurveyDetails() {
 
     setIsDeleting(true);
     try {
-      await deleteSurvey(userId, surveyId);
+      await deleteSurvey(userId, surveyId, collectionType);
       // Navigate back to dashboard after successful deletion
       navigate('/dashboard');
     } catch (err: any) {
