@@ -24,6 +24,11 @@ export default function Dashboard() {
   const [pdfProgress, setPdfProgress] = useState({ current: 0, total: 0 });
   const [searchRfp, setSearchRfp] = useState('');
   const [searchPoliceStation, setSearchPoliceStation] = useState('');
+  const [showRangeModal, setShowRangeModal] = useState(false);
+  const [rangeStart, setRangeStart] = useState<number>(1);
+  const [rangeEnd, setRangeEnd] = useState<number>(40);
+  const [rangeStartInput, setRangeStartInput] = useState<string>('1');
+  const [rangeEndInput, setRangeEndInput] = useState<string>('40');
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -99,25 +104,79 @@ export default function Dashboard() {
     }
   };
 
-  const handleBulkDownloadPDFs = async () => {
+  const handleBulkDownloadPDFs = () => {
     if (currentSurveys.length === 0) {
       alert('No surveys to export');
       return;
     }
+    // Set empty defaults so user can type custom range
+    setRangeStart(1);
+    setRangeEnd(1);
+    setRangeStartInput('');
+    setRangeEndInput('');
+    setShowRangeModal(true);
+  };
 
-    const confirmMessage = `This will generate ${currentSurveys.length} PDF file(s) and download them as a ZIP file. Continue?`;
+  const handleRangeDownload = async () => {
+    // Parse and validate the input values
+    const startVal = parseInt(rangeStartInput) || 0;
+    const endVal = parseInt(rangeEndInput) || 0;
+    
+    // Validate range
+    if (!rangeStartInput || !rangeEndInput || startVal < 1 || endVal < startVal || startVal > currentSurveys.length || endVal > currentSurveys.length) {
+      alert(`Invalid range! Please enter a valid range between 1 and ${currentSurveys.length}`);
+      return;
+    }
+    
+    // Update the actual range values
+    setRangeStart(startVal);
+    setRangeEnd(endVal);
+
+    // Get surveys in the selected range (1-based index, so subtract 1 for array index)
+    // slice(start, end) is exclusive of end, so slice(0, 10) gives indices 0-9 (10 items)
+    // slice(10, 20) gives indices 10-19 (10 items) - no overlap!
+    const selectedSurveys = currentSurveys.slice(startVal - 1, endVal);
+    
+    if (selectedSurveys.length === 0) {
+      alert('No surveys in the selected range');
+      return;
+    }
+
+    // Show first and last survey details for confirmation
+    const firstSurvey = selectedSurveys[0];
+    const lastSurvey = selectedSurveys[selectedSurveys.length - 1];
+    const confirmMessage = 
+      `This will generate and download ${selectedSurveys.length} PDF file(s) WITH IMAGES.\n\n` +
+      `Range: Surveys ${startVal}-${endVal} (from table S.No)\n` +
+      `First: RFP ${firstSurvey.rfpNumber || 'N/A'}, Pole ${firstSurvey.poleId || 'N/A'}\n` +
+      `Last: RFP ${lastSurvey.rfpNumber || 'N/A'}, Pole ${lastSurvey.poleId || 'N/A'}\n\n` +
+      `Each PDF will be downloaded individually.\n\n` +
+      `Note: Make sure search filters are cleared if you want to download sequential ranges.\n\n` +
+      `Continue?`;
+    
     if (!window.confirm(confirmMessage)) {
       return;
     }
 
+    setShowRangeModal(false);
     setExportingPDFs(true);
-    setPdfProgress({ current: 0, total: currentSurveys.length });
+    setPdfProgress({ current: 0, total: selectedSurveys.length });
     
     try {
-      await generateBulkPDFs(currentSurveys, (current, total) => {
+      // Download PDFs individually (no ZIP)
+      const result = await generateBulkPDFs(selectedSurveys, (current, total) => {
         setPdfProgress({ current, total });
       });
-      // Success message is not needed as the zip file will download automatically
+      
+      if (result.failed > 0) {
+        alert(
+          `⚠️ Generated ${result.success} PDF(s) successfully, but ${result.failed} failed.\n\n` +
+          `Failed surveys: ${result.failedSurveys.map(f => `RFP ${f.rfpNumber}, Pole ${f.poleId}`).join(', ')}\n\n` +
+          `Check console for details.`
+        );
+      } else {
+        alert(`✅ Successfully generated and downloaded ${result.success} PDF(s) for range ${startVal}-${endVal}!`);
+      }
     } catch (error: any) {
       console.error('Bulk PDF export error:', error);
       alert('Failed to generate PDFs: ' + (error.message || 'Unknown error'));
@@ -258,11 +317,11 @@ export default function Dashboard() {
                 onClick={handleBulkDownloadPDFs}
                 className="export-button"
                 disabled={exporting || exportingPDFs || currentSurveys.length === 0}
-                title="Download All as PDFs"
+                title="Download PDFs by Range"
               >
                 {exportingPDFs 
-                  ? `⏳ Generating ZIP (${pdfProgress.current}/${pdfProgress.total})...` 
-                  : '📦 Download All as ZIP'}
+                  ? `⏳ Downloading PDFs (${pdfProgress.current}/${pdfProgress.total})...` 
+                  : '📥 Download PDFs (Range)'}
               </button>
               <button onClick={loadSurveys} className="refresh-button">
                 Refresh
@@ -520,6 +579,151 @@ export default function Dashboard() {
           )}
         </div>
       </main>
+
+      {/* Range Selection Modal */}
+      {showRangeModal && (
+        <div className="modal-overlay" onClick={() => setShowRangeModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Select Range for PDF Download</h2>
+              <button className="modal-close" onClick={() => setShowRangeModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: '20px', color: '#666' }}>
+                Total surveys available: <strong>{currentSurveys.length}</strong>
+              </p>
+              <div className="range-inputs">
+                <div className="range-input-group">
+                  <label htmlFor="range-start">Start (1-{currentSurveys.length}):</label>
+                  <input
+                    type="text"
+                    id="range-start"
+                    inputMode="numeric"
+                    value={rangeStartInput}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow empty string or numbers only
+                      if (value === '' || /^\d+$/.test(value)) {
+                        setRangeStartInput(value);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value) || 1;
+                      const constrained = Math.max(1, Math.min(val, currentSurveys.length));
+                      setRangeStart(constrained);
+                      setRangeStartInput(String(constrained));
+                      if (constrained > rangeEnd) {
+                        const newEnd = Math.min(constrained, currentSurveys.length);
+                        setRangeEnd(newEnd);
+                        setRangeEndInput(String(newEnd));
+                      }
+                    }}
+                  />
+                </div>
+                <div className="range-input-group">
+                  <label htmlFor="range-end">End (1-{currentSurveys.length}):</label>
+                  <input
+                    type="text"
+                    id="range-end"
+                    inputMode="numeric"
+                    value={rangeEndInput}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow empty string or numbers only
+                      if (value === '' || /^\d+$/.test(value)) {
+                        setRangeEndInput(value);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value) || rangeStart;
+                      const constrained = Math.max(rangeStart, Math.min(val, currentSurveys.length));
+                      setRangeEnd(constrained);
+                      setRangeEndInput(String(constrained));
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="range-preview" style={{ marginTop: '20px', padding: '15px', background: '#f5f5f5', borderRadius: '8px' }}>
+                {rangeStartInput && rangeEndInput ? (
+                  <>
+                    <strong>Selected Range:</strong> Surveys {rangeStartInput} to {rangeEndInput}
+                    {(() => {
+                      const start = parseInt(rangeStartInput) || 0;
+                      const end = parseInt(rangeEndInput) || 0;
+                      const valid = start >= 1 && end >= start && end <= currentSurveys.length;
+                      const count = valid ? (end - start + 1) : 0;
+                      return count > 0 ? ` (${count} PDFs will be generated)` : ' (Invalid range)';
+                    })()}
+                  </>
+                ) : (
+                  <span style={{ color: '#666' }}>Enter start and end numbers to see preview</span>
+                )}
+              </div>
+              <div className="quick-ranges" style={{ marginTop: '20px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  className="quick-range-btn"
+                  onClick={() => {
+                    const end = Math.min(40, currentSurveys.length);
+                    setRangeStart(1);
+                    setRangeEnd(end);
+                    setRangeStartInput('1');
+                    setRangeEndInput(String(end));
+                  }}
+                >
+                  1-40
+                </button>
+                <button
+                  className="quick-range-btn"
+                  onClick={() => {
+                    const start = 41;
+                    const end = Math.min(80, currentSurveys.length);
+                    setRangeStart(start);
+                    setRangeEnd(end);
+                    setRangeStartInput(String(start));
+                    setRangeEndInput(String(end));
+                  }}
+                  disabled={currentSurveys.length < 41}
+                >
+                  41-80
+                </button>
+                <button
+                  className="quick-range-btn"
+                  onClick={() => {
+                    const start = 81;
+                    const end = Math.min(120, currentSurveys.length);
+                    setRangeStart(start);
+                    setRangeEnd(end);
+                    setRangeStartInput(String(start));
+                    setRangeEndInput(String(end));
+                  }}
+                  disabled={currentSurveys.length < 81}
+                >
+                  81-120
+                </button>
+                <button
+                  className="quick-range-btn"
+                  onClick={() => {
+                    setRangeStart(1);
+                    setRangeEnd(currentSurveys.length);
+                    setRangeStartInput('1');
+                    setRangeEndInput(String(currentSurveys.length));
+                  }}
+                >
+                  All ({currentSurveys.length})
+                </button>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="modal-button cancel" onClick={() => setShowRangeModal(false)}>
+                Cancel
+              </button>
+              <button className="modal-button primary" onClick={handleRangeDownload}>
+                Download PDFs
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
