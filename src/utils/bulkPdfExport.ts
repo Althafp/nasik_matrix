@@ -388,12 +388,12 @@ async function generateSinglePDFBlob(survey: Survey): Promise<{ blob: Blob; file
   addField(doc, margin, y, 'Updated At', formatDate(survey.updatedAt), fieldWidth);
   y += 12;
 
-  // Add "matrix" text centered below metadata
-  y += 3;
+  // Add "Matrix" text left aligned below metadata
+  y += 10; // Increased padding from above
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(51, 51, 51);
-  doc.text('matrix', pageWidth / 2, y, { align: 'center' });
+  doc.text('Matrix', margin + 5, y);
 
   // Update total pages in all footers
   const totalPages = doc.getNumberOfPages();
@@ -605,12 +605,12 @@ async function generateClientPDFBlob(survey: Survey): Promise<{ blob: Blob; file
 
   y += sectionSpacing;
 
-  // Only "matrix" text (REMOVED: Entire Metadata section)
-  y += 10;
+  // Only "Matrix" text (REMOVED: Entire Metadata section)
+  y += 15; // Increased padding from above
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(51, 51, 51);
-  doc.text('matrix', pageWidth / 2, y, { align: 'center' });
+  doc.text('Matrix', margin + 5, y);
 
   // Update total pages in all footers
   const totalPages = doc.getNumberOfPages();
