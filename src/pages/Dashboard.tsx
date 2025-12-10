@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import type { Survey } from '../firebase/surveys';
 import { getUserSurveys, getAllSurveys } from '../firebase/surveys';
 import { exportSurveysToExcel } from '../utils/excelExport';
+import { generateBulkPDFs } from '../utils/bulkPdfExport';
 import './Dashboard.css';
 
 type Section = 'all' | 'my';
@@ -19,6 +20,8 @@ export default function Dashboard() {
   const [activeSection, setActiveSection] = useState<Section>(isAdmin ? 'all' : 'my');
   const [viewMode, setViewMode] = useState<ViewMode>('normal');
   const [exporting, setExporting] = useState(false);
+  const [exportingPDFs, setExportingPDFs] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState({ current: 0, total: 0 });
   const [searchRfp, setSearchRfp] = useState('');
   const [searchPoliceStation, setSearchPoliceStation] = useState('');
 
@@ -93,6 +96,34 @@ export default function Dashboard() {
       alert('Failed to export Excel file: ' + (error.message || 'Unknown error'));
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleBulkDownloadPDFs = async () => {
+    if (currentSurveys.length === 0) {
+      alert('No surveys to export');
+      return;
+    }
+
+    const confirmMessage = `This will generate ${currentSurveys.length} PDF file(s) and download them as a ZIP file. Continue?`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    setExportingPDFs(true);
+    setPdfProgress({ current: 0, total: currentSurveys.length });
+    
+    try {
+      await generateBulkPDFs(currentSurveys, (current, total) => {
+        setPdfProgress({ current, total });
+      });
+      // Success message is not needed as the zip file will download automatically
+    } catch (error: any) {
+      console.error('Bulk PDF export error:', error);
+      alert('Failed to generate PDFs: ' + (error.message || 'Unknown error'));
+    } finally {
+      setExportingPDFs(false);
+      setPdfProgress({ current: 0, total: 0 });
     }
   };
 
@@ -218,10 +249,20 @@ export default function Dashboard() {
               <button
                 onClick={handleExportExcel}
                 className="export-button"
-                disabled={exporting || currentSurveys.length === 0}
+                disabled={exporting || exportingPDFs || currentSurveys.length === 0}
                 title="Export to Excel"
               >
                 {exporting ? '⏳ Exporting...' : '📥 Export Excel'}
+              </button>
+              <button
+                onClick={handleBulkDownloadPDFs}
+                className="export-button"
+                disabled={exporting || exportingPDFs || currentSurveys.length === 0}
+                title="Download All as PDFs"
+              >
+                {exportingPDFs 
+                  ? `⏳ Generating ZIP (${pdfProgress.current}/${pdfProgress.total})...` 
+                  : '📦 Download All as ZIP'}
               </button>
               <button onClick={loadSurveys} className="refresh-button">
                 Refresh

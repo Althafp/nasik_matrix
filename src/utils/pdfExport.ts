@@ -9,7 +9,20 @@ export async function generatePDF() {
     throw new Error('Could not find content element to capture');
   }
 
-  // Wait a bit to ensure all images are loaded
+  // Wait for all images to be fully loaded
+  const images = contentElement.querySelectorAll('img');
+  await Promise.all(
+    Array.from(images).map((img) => {
+      if (img.complete) return Promise.resolve();
+      return new Promise((resolve) => {
+        img.onload = resolve;
+        img.onerror = resolve; // Continue even if image fails
+        setTimeout(resolve, 5000); // Timeout after 5 seconds
+      });
+    })
+  );
+  
+  // Additional wait to ensure rendering is complete
   await new Promise(resolve => setTimeout(resolve, 500));
 
   // Capture the entire content area as canvas
@@ -17,7 +30,7 @@ export async function generatePDF() {
     useCORS: true,
     allowTaint: true,
     backgroundColor: '#ffffff',
-    scale: 1.5, // Higher quality
+    scale: 2, // Higher quality for better PDF
     logging: false,
     width: contentElement.scrollWidth,
     height: contentElement.scrollHeight,
