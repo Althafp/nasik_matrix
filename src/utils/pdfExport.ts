@@ -44,7 +44,6 @@ function addPageFooter(doc: jsPDF, pageNum: number, totalPages: number) {
   doc.setTextColor(128, 128, 128);
   doc.setFontSize(8);
   doc.text(`Page ${pageNum}/${totalPages}`, 105, 290, { align: 'center' });
-  doc.text(`Generated on ${new Date().toLocaleDateString('en-IN')}`, 105, 295, { align: 'center' });
   doc.setTextColor(0, 0, 0);
 }
 

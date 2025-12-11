@@ -44,7 +44,6 @@ function addPageFooter(doc: jsPDF, pageNum: number, totalPages: number) {
   doc.setTextColor(128, 128, 128);
   doc.setFontSize(8);
   doc.text(`Page ${pageNum}/${totalPages}`, 105, 290, { align: 'center' });
-  doc.text(`Generated on ${new Date().toLocaleDateString('en-IN')}`, 105, 295, { align: 'center' });
   doc.setTextColor(0, 0, 0);
 }
 
@@ -545,35 +544,9 @@ async function generateClientPDFBlob(survey: Survey): Promise<{ blob: Blob; file
 
   y += sectionSpacing;
 
-  // Section 4: Parent Pole (REMOVED: Section 5 Type of Analytics entirely)
-  checkNewPage(30);
-  y += addSectionTitle(doc, y, '4. PARENT POLE FOR POWER SOURCE');
-  y += 2;
-
-  const parentPoleFields = [
-    { label: 'Parent pole ID', value: formatValue(survey.parentPoleId), x: margin },
-    { label: 'Parent pole distance', value: formatValue(survey.parentPoleDistance), x: margin + fieldWidth + 10 },
-    { label: 'Road crossing length from parent pole', value: formatValue(survey.parentPoleRoadCrossing), x: margin },
-    { label: 'Parent road type', value: formatValue(survey.parentPoleRoadType), x: margin + fieldWidth + 10 },
-  ];
-
-  for (let i = 0; i < parentPoleFields.length; i += 2) {
-    checkNewPage(12);
-    const field1 = parentPoleFields[i];
-    const field2 = parentPoleFields[i + 1];
-    
-    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
-    if (field2) {
-      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
-    }
-    y += 12;
-  }
-
-  y += sectionSpacing;
-
-  // Section 5: Images
+  // Section 4: Images (REMOVED: Section 4 Parent Pole entirely)
   checkNewPage(50);
-  y += addSectionTitle(doc, y, `5. IMAGES (${images.length || 0})`);
+  y += addSectionTitle(doc, y, `4. IMAGES (${images.length || 0})`);
   y += 3;
 
   if (images.length > 0) {

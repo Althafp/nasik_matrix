@@ -295,3 +295,4 @@ export function generatePDFDirectly(survey: Survey, includeImages: boolean = fal
   return doc.output('blob');
 }
 
+
