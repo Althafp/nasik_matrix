@@ -1,14 +1,69 @@
 import jsPDF from 'jspdf';
 import type { Survey } from '../firebase/surveys';
 
-// Helper function to load image as base64
-async function loadImageAsBase64(url: string): Promise<string> {
+// Helper function to resize image to standard size
+async function resizeImageToStandard(img: HTMLImageElement, maxWidth: number, maxHeight: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      reject(new Error('Could not get canvas context'));
+      return;
+    }
+
+    // Calculate new dimensions maintaining aspect ratio
+    let width = img.width;
+    let height = img.height;
+    const aspectRatio = width / height;
+
+    if (width > maxWidth) {
+      width = maxWidth;
+      height = width / aspectRatio;
+    }
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * aspectRatio;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+
+    // Draw and resize image
+    ctx.drawImage(img, 0, 0, width, height);
+    
+    try {
+      const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.85); // Use JPEG with 85% quality for smaller size
+      resolve(resizedDataUrl);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to load image as base64 with resizing
+async function loadImageAsBase64(url: string, maxWidth: number = 800, maxHeight: number = 600): Promise<string> {
   try {
     const response = await fetch(url);
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
+      reader.onloadend = () => {
+        const img = new Image();
+        img.onload = async () => {
+          try {
+            const resizedBase64 = await resizeImageToStandard(img, maxWidth, maxHeight);
+            resolve(resizedBase64);
+          } catch (error) {
+            console.error('Error resizing image:', error);
+            resolve(reader.result as string); // Fallback to original
+          }
+        };
+        img.onerror = () => {
+          console.error('Error loading image');
+          resolve(reader.result as string); // Fallback to original
+        };
+        img.src = reader.result as string;
+      };
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
@@ -339,16 +394,52 @@ export async function generatePDF(survey: Survey): Promise<void> {
   y += 3;
 
   if (images.length > 0) {
-    const imgWidth = 60;
-    const imgHeight = 40; // Reduced from 45
-    const imgGap = 8; // Reduced from 10
+    const availableWidth = pageWidth - (margin * 2); // 190mm
+    const imgGap = 5; // Reduced gap for better fit
+    // Calculate available height (leave space for Matrix text and footer)
+    const availableHeight = pageHeight - y - margin - 20; // Reserve space for Matrix and footer
+    let imgWidth: number;
+    let imgHeight: number;
+    
+    // Calculate dimensions to fit 3 images in one row, respecting both X and Y constraints
+    if (images.length <= 3) {
+      // For 3 or fewer images: fit all in one row
+      // Calculate width: n * width + (n-1) * gap = availableWidth
+      const calculatedWidth = (availableWidth - (images.length - 1) * imgGap) / images.length;
+      // Calculate height based on available space
+      const calculatedHeight = availableHeight;
+      // Use the smaller dimension to ensure both fit, maintaining aspect ratio
+      // Standard aspect ratio is 4:3, so height = width * 0.75
+      // We need to fit: width fits in availableWidth/n, height fits in availableHeight
+      const maxWidthFromHeight = calculatedHeight / 0.75; // If height is limiting
+      const maxHeightFromWidth = calculatedWidth * 0.75; // If width is limiting
+      
+      // Use whichever is smaller to ensure both dimensions fit
+      if (maxHeightFromWidth <= calculatedHeight) {
+        imgWidth = calculatedWidth;
+        imgHeight = maxHeightFromWidth;
+      } else {
+        imgWidth = maxWidthFromHeight;
+        imgHeight = calculatedHeight;
+      }
+    } else {
+      // For more than 3 images, use 2 per row
+      imgWidth = (availableWidth - imgGap) / 2;
+      imgHeight = Math.min(availableHeight, imgWidth * 0.75);
+    }
+    
     let imgX = margin;
     
     for (let i = 0; i < images.length; i++) {
-      if (imgX + imgWidth > pageWidth - margin) {
+      // Check if we need a new row (for more than 3 images)
+      if (images.length > 3 && i > 0 && i % 2 === 0) {
         checkNewPage(50);
         imgX = margin;
-        y += 45;
+        y += imgHeight + imgGap;
+      } else if (imgX + imgWidth > pageWidth - margin) {
+        checkNewPage(50);
+        imgX = margin;
+        y += imgHeight + imgGap;
       }
       await addImageToPDF(doc, imgX, y, images[i], imgWidth, imgHeight);
       imgX += imgWidth + imgGap;

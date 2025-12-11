@@ -296,3 +296,4 @@ export function generatePDFDirectly(survey: Survey, includeImages: boolean = fal
 }
 
 
+

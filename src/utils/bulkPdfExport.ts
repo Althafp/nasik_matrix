@@ -1,14 +1,69 @@
 import jsPDF from 'jspdf';
 import type { Survey } from '../firebase/surveys';
 
-// Helper function to load image as base64
-async function loadImageAsBase64(url: string): Promise<string> {
+// Helper function to resize image to standard size
+async function resizeImageToStandard(img: HTMLImageElement, maxWidth: number, maxHeight: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      reject(new Error('Could not get canvas context'));
+      return;
+    }
+
+    // Calculate new dimensions maintaining aspect ratio
+    let width = img.width;
+    let height = img.height;
+    const aspectRatio = width / height;
+
+    if (width > maxWidth) {
+      width = maxWidth;
+      height = width / aspectRatio;
+    }
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * aspectRatio;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+
+    // Draw and resize image
+    ctx.drawImage(img, 0, 0, width, height);
+    
+    try {
+      const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.85); // Use JPEG with 85% quality for smaller size
+      resolve(resizedDataUrl);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to load image as base64 with resizing
+async function loadImageAsBase64(url: string, maxWidth: number = 800, maxHeight: number = 600): Promise<string> {
   try {
     const response = await fetch(url);
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
+      reader.onloadend = () => {
+        const img = new Image();
+        img.onload = async () => {
+          try {
+            const resizedBase64 = await resizeImageToStandard(img, maxWidth, maxHeight);
+            resolve(resizedBase64);
+          } catch (error) {
+            console.error('Error resizing image:', error);
+            resolve(reader.result as string); // Fallback to original
+          }
+        };
+        img.onerror = () => {
+          console.error('Error loading image');
+          resolve(reader.result as string); // Fallback to original
+        };
+        img.src = reader.result as string;
+      };
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
@@ -45,6 +100,55 @@ function addPageFooter(doc: jsPDF, pageNum: number, totalPages: number) {
   doc.setFontSize(8);
   doc.text(`Page ${pageNum}/${totalPages}`, 105, 290, { align: 'center' });
   doc.setTextColor(0, 0, 0);
+}
+
+// Add client footer (no page number, just text) - distributed layout
+function addClientFooter(doc: jsPDF) {
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(10); // Increased from 8
+  doc.setFont('helvetica', 'normal');
+  const pageWidth = 210;
+  const margin = 8;
+  const footerY = 294; // Moved down
+  
+  // Calculate even spacing for all 4 items
+  const totalWidth = pageWidth - (margin * 2);
+  const itemSpacing = totalWidth / 4; // Even spacing between items
+  
+  // Matrix - moved to right from left edge
+  doc.text('Matrix', margin + itemSpacing * 0.3, footerY);
+  
+  // PMC - evenly spaced
+  doc.text('PMC', margin + itemSpacing * 1.2, footerY);
+  
+  // Client - evenly spaced
+  doc.text('Client', margin + itemSpacing * 2.2, footerY);
+  
+  // Police - moved to left from right edge
+  doc.text('Police', margin + itemSpacing * 3.2, footerY);
+}
+
+// Add a simple field to PDF (no borders, just text) - for client PDFs
+function addSimpleField(doc: jsPDF, x: number, y: number, label: string, value: string, width: number = 95): number {
+  const lineHeight = 10; // Increased by 1 point
+  
+  // Label (bold)
+  doc.setFontSize(11); // Increased by 1 point
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text(label + ':', x, y);
+  
+  // Value (normal) - with gap after colon
+  doc.setFontSize(11); // Increased by 1 point
+  doc.setFont('helvetica', 'normal');
+  const labelWidth = doc.getTextWidth(label + ':');
+  const gapAfterColon = 3; // Professional gap between label and value
+  const valueX = x + labelWidth + gapAfterColon;
+  const maxWidth = width - labelWidth - gapAfterColon;
+  const lines = doc.splitTextToSize(value, maxWidth);
+  doc.text(lines[0], valueX, y);
+  
+  return lineHeight;
 }
 
 // Add a field to PDF
@@ -339,16 +443,52 @@ async function generateSinglePDFBlob(survey: Survey): Promise<{ blob: Blob; file
   y += 3;
 
   if (images.length > 0) {
-    const imgWidth = 60;
-    const imgHeight = 40; // Reduced from 45
-    const imgGap = 8; // Reduced from 10
+    const availableWidth = pageWidth - (margin * 2); // 190mm
+    const imgGap = 5; // Reduced gap for better fit
+    // Calculate available height (leave space for Matrix text and footer)
+    const availableHeight = pageHeight - y - margin - 20; // Reserve space for Matrix and footer
+    let imgWidth: number;
+    let imgHeight: number;
+    
+    // Calculate dimensions to fit 3 images in one row, respecting both X and Y constraints
+    if (images.length <= 3) {
+      // For 3 or fewer images: fit all in one row
+      // Calculate width: n * width + (n-1) * gap = availableWidth
+      const calculatedWidth = (availableWidth - (images.length - 1) * imgGap) / images.length;
+      // Calculate height based on available space
+      const calculatedHeight = availableHeight;
+      // Use the smaller dimension to ensure both fit, maintaining aspect ratio
+      // Standard aspect ratio is 4:3, so height = width * 0.75
+      // We need to fit: width fits in availableWidth/n, height fits in availableHeight
+      const maxWidthFromHeight = calculatedHeight / 0.75; // If height is limiting
+      const maxHeightFromWidth = calculatedWidth * 0.75; // If width is limiting
+      
+      // Use whichever is smaller to ensure both dimensions fit
+      if (maxHeightFromWidth <= calculatedHeight) {
+        imgWidth = calculatedWidth;
+        imgHeight = maxHeightFromWidth;
+      } else {
+        imgWidth = maxWidthFromHeight;
+        imgHeight = calculatedHeight;
+      }
+    } else {
+      // For more than 3 images, use 2 per row
+      imgWidth = (availableWidth - imgGap) / 2;
+      imgHeight = Math.min(availableHeight, imgWidth * 0.75);
+    }
+    
     let imgX = margin;
     
     for (let i = 0; i < images.length; i++) {
-      if (imgX + imgWidth > pageWidth - margin) {
+      // Check if we need a new row (for more than 3 images)
+      if (images.length > 3 && i > 0 && i % 2 === 0) {
         checkNewPage(50);
         imgX = margin;
-        y += 45;
+        y += imgHeight + imgGap;
+      } else if (imgX + imgWidth > pageWidth - margin) {
+        checkNewPage(50);
+        imgX = margin;
+        y += imgHeight + imgGap;
       }
       await addImageToPDF(doc, imgX, y, images[i], imgWidth, imgHeight);
       imgX += imgWidth + imgGap;
@@ -412,7 +552,7 @@ async function generateSinglePDFBlob(survey: Survey): Promise<{ blob: Blob; file
   return { blob: pdfBlob, filename };
 }
 
-// Generate Client PDF (with fewer fields) using jsPDF native API
+// Generate Client PDF (with fewer fields) using jsPDF native API - Print-friendly version
 async function generateClientPDFBlob(survey: Survey): Promise<{ blob: Blob; filename: string }> {
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -421,14 +561,15 @@ async function generateClientPDFBlob(survey: Survey): Promise<{ blob: Blob; file
     compress: true
   });
 
-  // Constants
+  // Constants - professional spacing (increased by ~37.5% + additional 10-15% + 1 more point)
   const pageWidth = 210;
   const pageHeight = 297;
-  const margin = 10;
+  const margin = 10; // Standard margin
   const contentWidth = pageWidth - (margin * 2);
-  const fieldWidth = (contentWidth - 10) / 2; // 2 columns with gap
+  const fieldWidth = (contentWidth - 17) / 2; // 2 columns with increased gap (+1)
   let y = margin; // Start from top
-  const sectionSpacing = 4; // Reduced spacing
+  const sectionSpacing = 10; // Increased by 1 point
+  const lineSpacing = 9; // Increased by 1 point
   
   // Load images
   const images: string[] = [];
@@ -439,36 +580,27 @@ async function generateClientPDFBlob(survey: Survey): Promise<{ blob: Blob; file
     }
   }
 
-  // Helper to check if we need new page
-  const checkNewPage = (requiredHeight: number): boolean => {
-    if (y + requiredHeight > pageHeight - margin - 8) {
-      addPageFooter(doc, doc.getNumberOfPages(), 0);
-      doc.addPage();
-      y = margin;
-      return true;
-    }
-    return false;
-  };
-
   // Add "Site Survey" heading at the top
-  doc.setFontSize(14);
+  doc.setFontSize(19); // Increased by 1 point
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(51, 51, 51);
+  doc.setTextColor(0, 0, 0);
   doc.text('SITE SURVEY', pageWidth / 2, y, { align: 'center' });
-  y += 8;
+  y += 14; // Increased by 1 point
 
-  // Section 1: General Information (REMOVED: Power Substation)
-  checkNewPage(10);
-  y += addSectionTitle(doc, y, '1. GENERAL INFORMATION');
-  y += 2;
+  // Section 1: General Information
+  const section1StartY = y - 6; // Start box higher above title
+  doc.setFontSize(14); // Increased by 1 point
+  doc.setFont('helvetica', 'bold');
+  doc.text('1. GENERAL INFORMATION', margin + 2, y); // Add padding from left
+  y += 10; // Increased by 1 point
   
   const generalFields = [
     { label: 'RFP Number', value: formatValue(survey.rfpNumber), x: margin },
-    { label: 'Pole ID', value: formatValue(survey.poleId), x: margin + fieldWidth + 10 },
+    { label: 'Pole ID', value: formatValue(survey.poleId), x: margin + fieldWidth + 14 },
     { label: 'Location Name', value: formatValue(survey.locationName), x: margin },
-    { label: 'Police Station', value: formatValue(survey.policeStation), x: margin + fieldWidth + 10 },
+    { label: 'Police Station', value: formatValue(survey.policeStation), x: margin + fieldWidth + 14 },
     { label: 'Location Categories', value: survey.locationCategories?.join(', ') || 'N/A', x: margin },
-    { label: 'Nearest Landmark', value: formatValue(survey.nearestLandmark), x: margin + fieldWidth + 10 },
+    { label: 'Nearest Landmark', value: formatValue(survey.nearestLandmark), x: margin + fieldWidth + 14 },
   ];
   
   if (survey.latitude && survey.longitude) {
@@ -476,121 +608,164 @@ async function generateClientPDFBlob(survey: Survey): Promise<{ blob: Blob; file
   }
 
   for (let i = 0; i < generalFields.length; i += 2) {
-    checkNewPage(12);
     const field1 = generalFields[i];
     const field2 = generalFields[i + 1];
     
-    const height1 = addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    addSimpleField(doc, field1.x + 2, y, field1.label, field1.value, fieldWidth); // Add padding from left
     if (field2) {
-      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+      addSimpleField(doc, field2.x + 2, y, field2.label, field2.value, fieldWidth); // Add padding from left
     }
-    y += Math.max(height1, 10) + 2;
+    y += lineSpacing;
   }
+  
+  // Draw box around Section 1 with proper padding
+  const section1Height = y - section1StartY + 2; // Reduced padding at bottom
+  doc.setDrawColor(200, 200, 200); // Light gray border
+  doc.setLineWidth(0.5);
+  doc.rect(margin, section1StartY, contentWidth, section1Height);
 
   y += sectionSpacing;
 
-  // Section 2: Infrastructure Details (REMOVED: Cable Trenching, Existing CCTV Pole, Distance from Existing Pole, No. of Cameras, No. of Poles)
-  checkNewPage(12);
-  y += addSectionTitle(doc, y, '2. INFRASTRUCTURE DETAILS');
-  y += 2;
+  // Section 2: Infrastructure Details
+  const section2StartY = y - 6; // Start box higher above title
+  doc.setFontSize(14); // Increased by 1 point
+  doc.setFont('helvetica', 'bold');
+  doc.text('2. INFRASTRUCTURE DETAILS', margin + 2, y); // Add padding from left
+  y += 10; // Increased by 1 point
 
   const infraFields = [
     { label: 'Power Source Available', value: survey.powerSourceAvailability === true ? 'Yes' : survey.powerSourceAvailability === false ? 'No' : 'N/A', x: margin },
-    { label: 'Road Type', value: formatValue(survey.roadType), x: margin + fieldWidth + 10 },
+    { label: 'Road Type', value: formatValue(survey.roadType), x: margin + fieldWidth + 14 },
     { label: 'No. of Roads', value: formatValue(survey.noOfRoads), x: margin },
-    { label: 'Pole Size', value: formatValue(survey.poleSize), x: margin + fieldWidth + 10 },
+    { label: 'Pole Size', value: formatValue(survey.poleSize), x: margin + fieldWidth + 14 },
     { label: 'Cantilever Type', value: formatValue(survey.cantileverType), x: margin },
-    { label: 'JB', value: formatValue(survey.jb), x: margin + fieldWidth + 10 },
+    { label: 'JB', value: formatValue(survey.jb), x: margin + fieldWidth + 14 },
   ];
 
   for (let i = 0; i < infraFields.length; i += 2) {
-    checkNewPage(12);
     const field1 = infraFields[i];
     const field2 = infraFields[i + 1];
     
-    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    addSimpleField(doc, field1.x + 2, y, field1.label, field1.value, fieldWidth); // Add padding from left
     if (field2) {
-      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+      addSimpleField(doc, field2.x + 2, y, field2.label, field2.value, fieldWidth); // Add padding from left
     }
-    y += 12;
+    y += lineSpacing;
   }
+  
+  // Draw box around Section 2 with proper padding
+  const section2Height = y - section2StartY + 2; // Reduced padding at bottom
+  doc.setDrawColor(200, 200, 200); // Light gray border
+  doc.setLineWidth(0.5);
+  doc.rect(margin, section2StartY, contentWidth, section2Height);
 
   y += sectionSpacing;
 
-  // Section 3: Type of Cameras (REMOVED: Section 3 Measurement Sheet entirely)
-  checkNewPage(12);
-  y += addSectionTitle(doc, y, '3. TYPE OF CAMERAS');
-  y += 2;
+  // Section 3: Type of Cameras
+  const section3StartY = y - 6; // Start box higher above title
+  doc.setFontSize(14); // Increased by 1 point
+  doc.setFont('helvetica', 'bold');
+  doc.text('3. TYPE OF CAMERAS', margin + 2, y); // Add padding from left
+  y += 10; // Increased by 1 point
 
   const cameraFields = [
     { label: 'Fixed Box Camera', value: formatValue(survey.fixedBoxCamera), x: margin },
-    { label: 'PTZ', value: formatValue(survey.ptz), x: margin + fieldWidth + 10 },
+    { label: 'PTZ', value: formatValue(survey.ptz), x: margin + fieldWidth + 14 },
     { label: 'ANPR Camera', value: formatValue(survey.anprCamera), x: margin },
-    { label: 'Total Cameras', value: formatValue(survey.totalCameras), x: margin + fieldWidth + 10 },
+    { label: 'Total Cameras', value: formatValue(survey.totalCameras), x: margin + fieldWidth + 14 },
     { label: 'PA System', value: formatValue(survey.paSystem), x: margin },
   ];
 
   for (let i = 0; i < cameraFields.length; i += 2) {
-    checkNewPage(12);
     const field1 = cameraFields[i];
     const field2 = cameraFields[i + 1];
     
-    addField(doc, field1.x, y, field1.label, field1.value, fieldWidth);
+    addSimpleField(doc, field1.x + 2, y, field1.label, field1.value, fieldWidth); // Add padding from left
     if (field2) {
-      addField(doc, field2.x, y, field2.label, field2.value, fieldWidth);
+      addSimpleField(doc, field2.x + 2, y, field2.label, field2.value, fieldWidth); // Add padding from left
     }
-    y += 12;
+    y += lineSpacing;
   }
+  
+  // Draw box around Section 3 with proper padding
+  const section3Height = y - section3StartY + 2; // Reduced padding at bottom
+  doc.setDrawColor(200, 200, 200); // Light gray border
+  doc.setLineWidth(0.5);
+  doc.rect(margin, section3StartY, contentWidth, section3Height);
 
   y += sectionSpacing;
 
-  // Section 4: Images (REMOVED: Section 4 Parent Pole entirely)
-  checkNewPage(50);
-  y += addSectionTitle(doc, y, `4. IMAGES (${images.length || 0})`);
-  y += 3;
+  // Section 4: Images
+  const section4StartY = y - 6; // Start box higher above title
+  doc.setFontSize(14); // Increased by 1 point
+  doc.setFont('helvetica', 'bold');
+  doc.text(`4. IMAGES (${images.length || 0})`, margin + 2, y); // Add padding from left
+  y += 10; // Increased by 1 point
 
   if (images.length > 0) {
-    const imgWidth = 60;
-    const imgHeight = 40;
-    const imgGap = 8;
-    let imgX = margin;
+    const availableWidth = pageWidth - (margin * 2); // 194mm
+    const imgGap = 12; // Professional gap between images (increased from 8mm)
+    // Calculate available height - extend to near page end, leave only small space for footer
+    const footerSpace = 8; // Small space for footer
+    const availableHeight = pageHeight - y - footerSpace; // Use most of remaining space
+    let imgWidth: number;
+    let imgHeight: number;
+    
+    // Standard size for 3 images in a row with proper gaps - maximize height
+    if (images.length <= 3) {
+      // For 3 images: 3 * width + 2 * gap = availableWidth
+      // So: width = (availableWidth - 2 * gap) / 3
+      imgWidth = (availableWidth - 2 * imgGap) / 3;
+      // Use maximum available height, maintaining aspect ratio
+      const calculatedHeight = imgWidth * 0.75;
+      // Use the larger of calculated height or available height (but maintain aspect ratio)
+      if (calculatedHeight <= availableHeight) {
+        imgHeight = calculatedHeight;
+      } else {
+        // If available height is more, we can make images taller
+        imgHeight = availableHeight;
+        imgWidth = imgHeight / 0.75;
+        // Recalculate to ensure 3 still fit with gaps
+        const totalWidthNeeded = 3 * imgWidth + 2 * imgGap;
+        if (totalWidthNeeded > availableWidth) {
+          // Adjust to fit width constraint
+          imgWidth = (availableWidth - 2 * imgGap) / 3;
+          imgHeight = imgWidth * 0.75;
+        }
+      }
+    } else {
+      // For more than 3 images, use 2 per row
+      imgWidth = (availableWidth - imgGap) / 2;
+      imgHeight = Math.min(availableHeight, imgWidth * 0.75);
+    }
+    
+    let imgX = margin + 2; // Add padding from left
+    const startY = y;
     
     for (let i = 0; i < images.length; i++) {
-      if (imgX + imgWidth > pageWidth - margin) {
-        checkNewPage(50);
-        imgX = margin;
-        y += 45;
+      // Check if we need a new row (for more than 3 images)
+      if (images.length > 3 && i > 0 && i % 2 === 0) {
+        imgX = margin + 2; // Add padding from left
+        y = startY;
+        y += imgHeight + imgGap;
+      } else if (imgX + imgWidth > pageWidth - margin - 2) {
+        imgX = margin + 2; // Add padding from left
+        y += imgHeight + imgGap;
       }
       await addImageToPDF(doc, imgX, y, images[i], imgWidth, imgHeight);
       imgX += imgWidth + imgGap;
     }
-    y += imgHeight + 5;
-  } else {
-    // White placeholder
-    checkNewPage(40);
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(margin, y, contentWidth, 35, 2, 2, 'F');
-    doc.setDrawColor(224, 224, 224);
-    doc.setLineWidth(1);
-    doc.roundedRect(margin, y, contentWidth, 35, 2, 2);
-    y += 40;
+    y += imgHeight + 2;
   }
+  
+  // Draw box around Section 4 (Images) with proper padding
+  const section4Height = y - section4StartY + 2; // Reduced padding at bottom
+  doc.setDrawColor(200, 200, 200); // Light gray border
+  doc.setLineWidth(0.5);
+  doc.rect(margin, section4StartY, contentWidth, section4Height);
 
-  y += sectionSpacing;
-
-  // Only "Matrix" text (REMOVED: Entire Metadata section)
-  y += 15; // Increased padding from above
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(51, 51, 51);
-  doc.text('Matrix', margin + 5, y);
-
-  // Update total pages in all footers
-  const totalPages = doc.getNumberOfPages();
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i);
-    addPageFooter(doc, i, totalPages);
-  }
+  // Add footer (no page number, just text)
+  addClientFooter(doc);
 
   // Generate filename
   const rfpNumber = survey.rfpNumber || 'unknown';
