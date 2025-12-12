@@ -122,7 +122,7 @@ function addClientFooter(doc: jsPDF) {
   doc.text('PMC', margin + itemSpacing * 1.2, footerY);
   
   // Client - evenly spaced
-  doc.text('NMSCDCL(Client)', margin + itemSpacing * 2.2, footerY);
+  doc.text('NMSCDCL', margin + itemSpacing * 2.2, footerY);
   
   // Police - moved to left from right edge
   doc.text('Police', margin + itemSpacing * 3.2, footerY);
