@@ -1,4 +1,4 @@
-# Nasik Survey App - Web Dashboard
+
 
 A React TypeScript web application for viewing and managing survey reports from the Nasik Survey App.
 
